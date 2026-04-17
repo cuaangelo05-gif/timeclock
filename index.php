@@ -39,10 +39,7 @@ try {
 <body>
   <!-- Brand logos centered top (fixed) -->
   <div class="brand-logos" role="img" aria-label="Company logos">
-    <div class="brand-logo-item"><img src="assets/logo_camfin.png" alt="CamFin Lending" loading="lazy"></div>
-    <div class="brand-logo-item"><img src="assets/logo_cashmgmt.png" alt="Cash Management" loading="lazy"></div>
-    <div class="brand-logo-item"><img src="assets/cremlic.jpg" alt="CREMLIC" loading="lazy"></div>
-    <div class="brand-logo-item"><img src="assets/machtech.png" alt="MachTech" loading="lazy"></div>
+    <div class="brand-logo-item"><img src="assets/logos/image.png" alt="McAsia" loading="lazy"></div>
   </div>
 
   <main class="kiosk" id="kiosk">
