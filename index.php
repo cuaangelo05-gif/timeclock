@@ -195,4 +195,36 @@ try {
 
   <script src="attendance.js"></script>
 </body>
+<script>
+// Auto-start camera preview on page load
+document.addEventListener('DOMContentLoaded', async () => {
+  const cameraPreview = document.getElementById('cameraPreview');
+  if (!cameraPreview) return;
+  
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    console.warn('getUserMedia not supported');
+    cameraPreview.style.display = 'none'; // Hide video if not supported
+    return;
+  }
+  
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: true, // Simplified constraints for better compatibility
+      audio: false
+    });
+    cameraPreview.srcObject = stream;
+    await cameraPreview.play();
+    console.log('✅ Camera started');
+  } catch (err) {
+    console.warn('❌ Camera permission denied or not available:', err);
+    cameraPreview.style.display = 'none'; // Hide video on error
+    // Optionally show a message
+    const msg = document.getElementById('formMsg');
+    if (msg) {
+      msg.textContent = 'Camera access failed. Please check permissions and try refreshing.';
+      msg.style.color = 'red';
+    }
+  }
+});
+</script>
 </html>
