@@ -1,0 +1,519 @@
+/* attendance.css - Updated to include Back button styles and fade-in animation,
+   plus the existing layout/styles. */
+
+:root{
+  --bg: #ffffff;
+  --card: #ffffff;
+  --muted: #6b7280;
+  --text: #0f1724;
+  --accent: #125bd8;
+  --accent-600: #0f4fd0;
+  --success: #16a34a;
+  --danger: #ef4444;
+  --soft: #f8fafc;
+  --radius: 14px;
+  --shadow: 0 12px 30px rgba(16,24,40,0.06);
+  --transition: 220ms cubic-bezier(.2,.9,.3,1);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+.kiosk{min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:28px 16px;gap:18px}
+
+/* Logo */
+.logo-wrap{display:flex;align-items:center;justify-content:center;margin-top:6px}
+.company-logo{display:block;max-width:320px;height:auto}
+
+/* Card */
+.card{width:420px;background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;border:1px solid #eef2f7}
+.card-title{margin:0;font-size:18px;font-weight:700;color:var(--text);text-align:left}
+
+/* Form layout */
+.selection-form{display:flex;flex-direction:column;gap:14px;margin-top:8px}
+.field{display:flex;flex-direction:column;gap:8px}
+.field-label{font-size:13px;color:var(--muted);font-weight:600}
+.segmented{display:flex;border-radius:10px;overflow:hidden;border:1px solid #eef2f7;background:#fbfdff}
+.seg-btn{flex:1;padding:12px 14px;border:0;background:transparent;color:var(--text);cursor:pointer;font-weight:700;font-size:15px;transition:background var(--transition),color var(--transition)}
+.seg-btn[aria-pressed="true"], .seg-btn.active { background: linear-gradient(180deg,var(--accent),var(--accent-600)); color:#fff; }
+select, input[type="tel"]{padding:12px 14px;border-radius:10px;border:1px solid #eef2f7;background:var(--soft);font-size:15px;color:var(--text);outline:none}
+select:focus, input[type="tel"]:focus{box-shadow:0 8px 24px rgba(12,74,202,0.08)}
+.actions{display:flex;justify-content:flex-end}
+.btn-primary{padding:12px 18px;border-radius:10px;border:0;background:var(--accent);color:#fff;font-weight:700;cursor:pointer;font-size:15px;transition:opacity var(--transition)}
+.btn-primary[disabled]{opacity:0.5;cursor:not-allowed}
+.form-msg{margin-top:8px;font-size:14px;color:var(--muted)}
+
+/* Ghost / Back button style (polished) */
+.btn-ghost{
+  display:inline-block;
+  padding:10px 14px;
+  border-radius:10px;
+  border:1px solid #e6eef8;
+  background:#fff;
+  color:var(--muted);
+  font-weight:700;
+  cursor:pointer;
+  transition:transform var(--transition), box-shadow var(--transition), color var(--transition);
+  box-shadow: 0 6px 18px rgba(15,23,36,0.04);
+}
+.btn-ghost:hover{
+  transform: translateY(-1px);
+  color: var(--text);
+  box-shadow: 0 10px 26px rgba(15,23,36,0.06);
+}
+.btn-ghost:focus{
+  outline:3px solid rgba(18,91,216,0.12);
+  outline-offset:3px;
+}
+
+/* Profile card layout */
+.profile-card{display:flex;gap:18px;align-items:flex-start}
+.hidden{display:none !important}
+.profile-left{flex:0 0 auto}
+.photo{width:110px;height:110px;border-radius:999px;object-fit:cover;border:4px solid #fff;box-shadow:0 10px 30px rgba(16,24,40,0.06)}
+.profile-right{flex:1}
+.emp-name{margin:0;font-size:20px;font-weight:700}
+.profile-data{margin-top:10px}
+.profile-data .row{display:flex;justify-content:space-between;padding:8px 0;border-top:1px dashed #f5f7fb}
+.profile-data dt{color:var(--muted);font-size:13px}
+.profile-data dd{margin:0;font-weight:700}
+.badge{padding:6px 10px;border-radius:999px;font-weight:700;font-size:13px}
+.badge.on { background: #ecfdf5; color: var(--success); border:1px solid rgba(16,185,129,0.08); }
+.badge.late { background: #fff1f2; color: var(--danger); border:1px solid rgba(239,68,68,0.06); }
+.badge.neutral { background:#f8fafc; color:var(--muted); border:1px solid #f1f5f9; }
+/* Early out badge styling */
+.badge.early {
+  background: #fff7ed; /* light warm background */
+  color: #b45309;     /* amber/dark-orange text */
+  border: 1px solid rgba(180,83,9,0.06);
+  font-weight: 700;
+}
+
+.profile-msg{margin-top:12px;font-weight:700;color:var(--accent)}
+.profile-actions{margin-top:12px}
+
+/* subtle fade-in for profile card */
+.fade-in { animation: fadeIn .28s ease both; }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* small */
+.small{font-size:13px;color:var(--muted)}
+.kiosk-footer{font-size:13px;color:var(--muted);text-align:center;margin-top:8px}
+
+/* Responsive */
+@media (max-width:520px){
+  .card, .profile-card{width:100%;padding:14px}
+  .profile-card{flex-direction:column;align-items:center}
+  .photo{width:90px;height:90px}
+  .seg-btn{font-size:14px;padding:10px 12px}
+}
+
+/* Replace calendar block with compact date/day styles (append to attendance.css) */
+.mvp-time-card {
+  width: 100%;
+  max-width: 720px;
+  margin: 10px auto 6px;
+  padding: 8px 12px;
+  box-sizing: border-box;
+}
+.mvp-time-row {
+  display:flex;
+  gap:18px;
+  align-items:center;
+  justify-content:center;
+  flex-wrap:wrap;
+}
+
+/* Clock */
+.mvp-clock { display:flex; flex-direction:column; align-items:center; min-width:220px; }
+.mvp-time { font-size:32px; font-weight:800; color:var(--accent); letter-spacing:1px; padding:6px 12px; border-radius:8px; }
+.mvp-tz { font-size:12px; color:var(--muted); margin-top:4px; }
+
+/* Date/Day block */
+.mvp-date { min-width:220px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; }
+.mvp-full-date { font-size:16px; font-weight:700; color:var(--text); }
+.mvp-day { font-size:13px; color:var(--muted); }
+
+/* Responsive */
+@media (max-width:720px){
+  .mvp-time-row { gap:12px; }
+  .mvp-time { font-size:26px; }
+  .mvp-date { min-width:180px; }
+}
+@media (max-width:420px){
+  .mvp-clock { min-width:160px; }
+  .mvp-date { min-width:140px; }
+  .mvp-time { font-size:20px; }
+}
+
+
+/* Add / append these rules to your existing attendance.css */
+
+/* Top-brand logos: centered, fixed, and separated from the main header/avatar */
+.brand-logos {
+  position: fixed;
+  top: 18px;                /* distance from top of viewport */
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 28px;                /* space between logos */
+  align-items: center;
+  z-index: 1000;
+  pointer-events: none;     /* avoids interaction blocking; logos are decorative */
+}
+
+/* Make each logo a consistent height and keep aspect ratio */
+.brand-logo-item img {
+  display: block;
+  height: 44px;             /* adjust as needed */
+  max-height: 56px;
+  width: auto;
+  object-fit: contain;
+  pointer-events: auto;     /* if some logos need to be clickable, remove this earlier property */
+}
+
+/* Push main kiosk content down so the avatar/logo.jpg is visually far from top logos */
+.kiosk {
+  /* increase top padding to keep content clear of fixed logos */
+  padding-top: 150px;       /* increase or reduce this value to tune spacing */
+  transition: padding-top 180ms ease;
+}
+
+/* If you have a header avatar container, ensure it doesn't overlap */
+.logo-wrap {
+  margin-top: 8px;          /* small local offset; main spacing handled by .kiosk */
+  display: flex;
+  justify-content: center;
+}
+
+/* Mobile / small screens: reduce logo sizes and spacing to keep things readable */
+@media (max-width: 480px) {
+  .brand-logos {
+    top: 10px;
+    gap: 16px;
+  }
+  .brand-logo-item img {
+    height: 36px;
+    max-height: 44px;
+  }
+  .kiosk {
+    padding-top: 180px;     /* on very small screens you might need more top padding to avoid overlap */
+  }
+}
+
+/* Larger screens: allow more breathing room */
+@media (min-width: 1200px) {
+  .brand-logos {
+    top: 28px;
+    gap: 40px;
+  }
+  .brand-logo-item img {
+    height: 56px;
+  }
+  .kiosk {
+    padding-top: 120px;     /* adjust for desktop layouts */
+  }
+}
+
+
+
+/* attendance.css - camera preview visible by default and avatar-consistent styling */
+
+/* (kept your existing variables and styles, only appended camera-related rules) */
+
+:root{
+  --bg: #ffffff;
+  --card: #ffffff;
+  --muted: #6b7280;
+  --text: #0f1724;
+  --accent: #125bd8;
+  --accent-600: #0f4fd0;
+  --success: #16a34a;
+  --danger: #ef4444;
+  --soft: #f8fafc;
+  --radius: 14px;
+  --shadow: 0 12px 30px rgba(16,24,40,0.06);
+  --transition: 220ms cubic-bezier(.2,.9,.3,1);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ... (your existing CSS content remains unchanged above) ... */
+
+/* Camera preview styling - keep the video visible at all times.
+   The poster attribute on the <video> will show the default image when no stream is attached. */
+video.company-avatar {
+  display: block;
+  width: 160px;
+  height: 160px;
+  border-radius: 999px;
+  object-fit: cover;
+  box-shadow: 0 12px 28px rgba(15,23,36,0.06);
+  margin: 6px auto 0;
+  background: #f3f4f6;
+  border: 4px solid #fff;
+}
+
+/* keep the canvas hidden */
+#captureCanvas { display: none; }/* attendance.css - Updated to include Back button styles and fade-in animation,
+   plus the existing layout/styles. */
+
+:root{
+  --bg: #ffffff;
+  --card: #ffffff;
+  --muted: #6b7280;
+  --text: #0f1724;
+  --accent: #125bd8;
+  --accent-600: #0f4fd0;
+  --success: #16a34a;
+  --danger: #ef4444;
+  --soft: #f8fafc;
+  --radius: 14px;
+  --shadow: 0 12px 30px rgba(16,24,40,0.06);
+  --transition: 220ms cubic-bezier(.2,.9,.3,1);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+.kiosk{min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:28px 16px;gap:18px}
+
+/* Logo */
+.logo-wrap{display:flex;align-items:center;justify-content:center;margin-top:6px}
+.company-logo{display:block;max-width:320px;height:auto}
+
+/* Card */
+.card{width:420px;background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);padding:18px;border:1px solid #eef2f7}
+.card-title{margin:0;font-size:18px;font-weight:700;color:var(--text);text-align:left}
+
+/* Form layout */
+.selection-form{display:flex;flex-direction:column;gap:14px;margin-top:8px}
+.field{display:flex;flex-direction:column;gap:8px}
+.field-label{font-size:13px;color:var(--muted);font-weight:600}
+.segmented{display:flex;border-radius:10px;overflow:hidden;border:1px solid #eef2f7;background:#fbfdff}
+.seg-btn{flex:1;padding:12px 14px;border:0;background:transparent;color:var(--text);cursor:pointer;font-weight:700;font-size:15px;transition:background var(--transition),color var(--transition)}
+.seg-btn[aria-pressed="true"], .seg-btn.active { background: linear-gradient(180deg,var(--accent),var(--accent-600)); color:#fff; }
+select, input[type="tel"]{padding:12px 14px;border-radius:10px;border:1px solid #eef2f7;background:var(--soft);font-size:15px;color:var(--text);outline:none}
+select:focus, input[type="tel"]:focus{box-shadow:0 8px 24px rgba(12,74,202,0.08)}
+.actions{display:flex;justify-content:flex-end}
+.btn-primary{padding:12px 18px;border-radius:10px;border:0;background:var(--accent);color:#fff;font-weight:700;cursor:pointer;font-size:15px;transition:opacity var(--transition)}
+.btn-primary[disabled]{opacity:0.5;cursor:not-allowed}
+.form-msg{margin-top:8px;font-size:14px;color:var(--muted)}
+
+/* Ghost / Back button style (polished) */
+.btn-ghost{
+  display:inline-block;
+  padding:10px 14px;
+  border-radius:10px;
+  border:1px solid #e6eef8;
+  background:#fff;
+  color:var(--muted);
+  font-weight:700;
+  cursor:pointer;
+  transition:transform var(--transition), box-shadow var(--transition), color var(--transition);
+  box-shadow: 0 6px 18px rgba(15,23,36,0.04);
+}
+.btn-ghost:hover{
+  transform: translateY(-1px);
+  color: var(--text);
+  box-shadow: 0 10px 26px rgba(15,23,36,0.06);
+}
+.btn-ghost:focus{
+  outline:3px solid rgba(18,91,216,0.12);
+  outline-offset:3px;
+}
+
+/* Profile card layout */
+.profile-card{display:flex;gap:18px;align-items:flex-start}
+.hidden{display:none !important}
+.profile-left{flex:0 0 auto}
+.photo{width:110px;height:110px;border-radius:999px;object-fit:cover;border:4px solid #fff;box-shadow:0 10px 30px rgba(16,24,40,0.06)}
+.profile-right{flex:1}
+.emp-name{margin:0;font-size:20px;font-weight:700}
+.profile-data{margin-top:10px}
+.profile-data .row{display:flex;justify-content:space-between;padding:8px 0;border-top:1px dashed #f5f7fb}
+.profile-data dt{color:var(--muted);font-size:13px}
+.profile-data dd{margin:0;font-weight:700}
+.badge{padding:6px 10px;border-radius:999px;font-weight:700;font-size:13px}
+.badge.on { background: #ecfdf5; color: var(--success); border:1px solid rgba(16,185,129,0.08); }
+.badge.late { background: #fff1f2; color: var(--danger); border:1px solid rgba(239,68,68,0.06); }
+.badge.neutral { background:#f8fafc; color:var(--muted); border:1px solid #f1f5f9; }
+/* Early out badge styling */
+.badge.early {
+  background: #fff7ed; /* light warm background */
+  color: #b45309;     /* amber/dark-orange text */
+  border: 1px solid rgba(180,83,9,0.06);
+  font-weight: 700;
+}
+
+.profile-msg{margin-top:12px;font-weight:700;color:var(--accent)}
+.profile-actions{margin-top:12px}
+
+/* subtle fade-in for profile card */
+.fade-in { animation: fadeIn .28s ease both; }
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* small */
+.small{font-size:13px;color:var(--muted)}
+.kiosk-footer{font-size:13px;color:var(--muted);text-align:center;margin-top:8px}
+
+/* Responsive */
+@media (max-width:520px){
+  .card, .profile-card{width:100%;padding:14px}
+  .profile-card{flex-direction:column;align-items:center}
+  .photo{width:90px;height:90px}
+  .seg-btn{font-size:14px;padding:10px 12px}
+}
+
+/* Replace calendar block with compact date/day styles (append to attendance.css) */
+.mvp-time-card {
+  width: 100%;
+  max-width: 720px;
+  margin: 10px auto 6px;
+  padding: 8px 12px;
+  box-sizing: border-box;
+}
+.mvp-time-row {
+  display:flex;
+  gap:18px;
+  align-items:center;
+  justify-content:center;
+  flex-wrap:wrap;
+}
+
+/* Clock */
+.mvp-clock { display:flex; flex-direction:column; align-items:center; min-width:220px; }
+.mvp-time { font-size:32px; font-weight:800; color:var(--accent); letter-spacing:1px; padding:6px 12px; border-radius:8px; }
+.mvp-tz { font-size:12px; color:var(--muted); margin-top:4px; }
+
+/* Date/Day block */
+.mvp-date { min-width:220px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; }
+.mvp-full-date { font-size:16px; font-weight:700; color:var(--text); }
+.mvp-day { font-size:13px; color:var(--muted); }
+
+/* Responsive */
+@media (max-width:720px){
+  .mvp-time-row { gap:12px; }
+  .mvp-time { font-size:26px; }
+  .mvp-date { min-width:180px; }
+}
+@media (max-width:420px){
+  .mvp-clock { min-width:160px; }
+  .mvp-date { min-width:140px; }
+  .mvp-time { font-size:20px; }
+}
+
+
+/* Add / append these rules to your existing attendance.css */
+
+/* Top-brand logos: centered, fixed, and separated from the main header/avatar */
+.brand-logos {
+  position: fixed;
+  top: 18px;                /* distance from top of viewport */
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 28px;                /* space between logos */
+  align-items: center;
+  z-index: 1000;
+  pointer-events: none;     /* avoids interaction blocking; logos are decorative */
+}
+
+/* Make each logo a consistent height and keep aspect ratio */
+.brand-logo-item img {
+  display: block;
+  height: 44px;             /* adjust as needed */
+  max-height: 56px;
+  width: auto;
+  object-fit: contain;
+  pointer-events: auto;     /* if some logos need to be clickable, remove this earlier property */
+}
+
+/* Push main kiosk content down so the avatar/logo.jpg is visually far from top logos */
+.kiosk {
+  /* increase top padding to keep content clear of fixed logos */
+  padding-top: 150px;       /* increase or reduce this value to tune spacing */
+  transition: padding-top 180ms ease;
+}
+
+/* If you have a header avatar container, ensure it doesn't overlap */
+.logo-wrap {
+  margin-top: 8px;          /* small local offset; main spacing handled by .kiosk */
+  display: flex;
+  justify-content: center;
+}
+
+/* Mobile / small screens: reduce logo sizes and spacing to keep things readable */
+@media (max-width: 480px) {
+  .brand-logos {
+    top: 10px;
+    gap: 16px;
+  }
+  .brand-logo-item img {
+    height: 36px;
+    max-height: 44px;
+  }
+  .kiosk {
+    padding-top: 180px;     /* on very small screens you might need more top padding to avoid overlap */
+  }
+}
+
+/* Larger screens: allow more breathing room */
+@media (min-width: 1200px) {
+  .brand-logos {
+    top: 28px;
+    gap: 40px;
+  }
+  .brand-logo-item img {
+    height: 56px;
+  }
+  .kiosk {
+    padding-top: 120px;     /* adjust for desktop layouts */
+  }
+}
+
+
+
+/* attendance.css - camera preview visible by default and avatar-consistent styling */
+
+/* (kept your existing variables and styles, only appended camera-related rules) */
+
+:root{
+  --bg: #ffffff;
+  --card: #ffffff;
+  --muted: #6b7280;
+  --text: #0f1724;
+  --accent: #125bd8;
+  --accent-600: #0f4fd0;
+  --success: #16a34a;
+  --danger: #ef4444;
+  --soft: #f8fafc;
+  --radius: 14px;
+  --shadow: 0 12px 30px rgba(16,24,40,0.06);
+  --transition: 220ms cubic-bezier(.2,.9,.3,1);
+  font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+/* ... (your existing CSS content remains unchanged above) ... */
+
+/* Camera preview styling - keep the video visible at all times.
+   The poster attribute on the <video> will show the default image when no stream is attached. */
+video.company-avatar {
+  display: block;
+  width: 160px;
+  height: 160px;
+  border-radius: 999px;
+  object-fit: cover;
+  box-shadow: 0 12px 28px rgba(15,23,36,0.06);
+  margin: 6px auto 0;
+  background: #f3f4f6;
+  border: 4px solid #fff;
+}
+
+/* keep the canvas hidden */
+#captureCanvas { display: none; }

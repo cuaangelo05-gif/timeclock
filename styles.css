@@ -1,0 +1,117 @@
+:root{
+  --bg:#0f1724;
+  --card:#0b1220;
+  --accent:#6EE7B7;
+  --accent2:#60A5FA;
+  --muted:#94a3b8;
+}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:linear-gradient(180deg,#0f1012 0%, #081426 60%);font-family:Inter,system-ui,Segoe UI,Roboto,Arial;color:#e6eef8}
+.stage{height:100%;display:flex;align-items:center;justify-content:center;padding:20px}
+.clock-card{width:420px;background:linear-gradient(180deg, rgb(147, 147, 147), rgba(17, 17, 17, 0.01));border-radius:14px;padding:28px;box-shadow:0 10px 30px rgba(2,6,23,0.6);text-align:center;border:1px solid rgba(255,255,255,0.03)}
+.brand{font-weight:700;letter-spacing:1px;color:var(--accent);font-size:20px;margin-bottom:12px}
+
+
+/* input + live time */
+.input-row{display:flex;align-items:center;gap:10px;justify-content:center;margin-top:18px}
+input#idInput{flex:1;min-width:220px;padding:14px 16px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);color:#e6eef8;font-size:16px;outline:none;box-shadow:none}
+input#idInput:focus{box-shadow:0 6px 24px rgba(96,165,250,0.12);border-color:rgba(96,165,250,0.18)}
+.live-time{min-width:120px;padding:6px 10px;border-radius:8px;background:rgba(255,255,255,0.03);color:var(--accent2);font-weight:700;text-align:center;font-size:14px}
+
+/* feedback message/meta */
+.feedback{margin-top:16px;min-height:52px;text-align:center}
+.feedback-msg{color:var(--accent);font-size:16px;font-weight:700;margin-bottom:6px}
+.feedback-meta{color:var(--accent2);font-size:13px;opacity:0.95}
+
+/* recent list */
+.history{margin-top:18px;text-align:left}
+.history h4{margin:0 0 8px 0;color:var(--muted);font-size:13px}
+.history ul{list-style:none;padding:0;margin:0;max-height:140px;overflow:auto}
+.history li{padding:8px;border-radius:8px;background:linear-gradient(90deg, rgba(255,255,255,0.015), rgba(255,255,255,0.01));margin-bottom:8px;font-size:14px;color:#dbeafe}
+
+/* Modal styling (white card, green button) */
+.modal.hidden{display:none}
+.modal{position:fixed;inset:0;z-index:1200;display:flex;align-items:center;justify-content:center}
+.modal-overlay{position:absolute;inset:0;background:rgba(3,6,23,0.6);backdrop-filter: blur(2px)}
+.modal-card{position:relative;z-index:2;width:320px;max-width:92%;background:#fff;color:#0b1220;border-radius:10px;padding:14px 16px;box-shadow:0 18px 50px rgba(2,6,23,0.6);text-align:center;font-family:Arial,Helvetica,sans-serif}
+.modal-top{margin-bottom:8px}
+.modal-icon{width:64px;height:64px;border-radius:999px;background:#e7f8ef;color:#0a8a3a;font-size:34px;display:inline-flex;align-items:center;justify-content:center;margin-bottom:8px;box-shadow:0 4px 12px rgba(10,138,58,0.12)}
+.modal-title{font-weight:700;margin-bottom:6px}
+.modal-shift{color:#555;font-size:13px;margin-bottom:6px}
+.modal-photo{margin:6px auto 10px;width:120px;height:120px;background:#f2f4f8;display:flex;align-items:center;justify-content:center;border-radius:8px;overflow:hidden}
+.modal-photo img{width:100%;height:100%;object-fit:cover}
+.modal-times{color:#333;font-size:14px;margin-bottom:12px}
+.time-row{padding:6px 0}
+.ok-btn{display:block;width:100%;background:#26a13b;color:#fff;border:none;padding:10px 12px;border-radius:8px;font-weight:700;cursor:pointer;font-size:16px}
+.modal-footer{margin-top:8px;font-size:12px;color:#666;text-align:center}
+/* two-logo header */
+.logo-row.two-logos {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0 14px;
+  padding: 0 6px;
+}
+
+/* each logo container */
+.logo-item {
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  flex: 0 0 auto;
+}
+
+/* CamFin left / CashManagement right */
+.logo-left img,
+.logo-right img {
+  max-height: 74px;
+  max-width: 140px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 20px rgba(255, 254, 254, 0.45));
+}
+
+
+/* responsive */
+@media (max-width: 520px) {
+  .logo-left img,
+  .logo-right img { max-height: 48px; max-width: 100px; }
+  .clock-card { width: calc(100% - 36px); padding: 18px; }
+}
+/* --- remove pulse styles (if present) and add center spacer) --- */
+
+/* spacer where the pulse/circle used to be */
+.center-space {
+  width: 100%;
+  height: 120px; /* same vertical space as the old pulse */
+  margin: 8px auto 6px;
+  display: block;
+}
+
+/* logos (two-logo header) */
+.logo-row.two-logos {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0 14px;
+  padding: 0 6px;
+}
+.logo-item { display:flex; align-items:center; justify-content:center; flex: 0 0 auto; }
+.logo-left img, .logo-right img {
+  max-height: 74px;
+  max-width: 140px;
+  object-fit: contain;
+  filter: drop-shadow(0 10px 20px rgba(0,0,0,0.45));
+}
+.logo-center { flex: 1 1 auto; text-align:center; }
+.logo-center-phantom { width:84px; height:1px; }
+
+/* Input + live time + feedback retain existing styles */
+/* (keep the rest of your existing styles.css content unchanged) */
+
+@media (max-width: 520px) {
+  .center-space { height: 84px; }
+  .logo-left img, .logo-right img { max-height: 48px; max-width: 100px; }
+  .clock-card { width: calc(100% - 36px); padding: 18px; }
+}

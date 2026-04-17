@@ -1,0 +1,158 @@
+/* admin.css — clean, neutral admin UI (responsive) */
+
+:root{
+  --bg: #f6f8fa;
+  --card: #ffffff;
+  --muted: #64748b;
+  --text: #0f1724;
+  --accent: #2563eb;
+  --success: #16a34a;
+  --danger: #ef4444;
+  --radius: 10px;
+  --shadow: 0 6px 20px rgba(15, 23, 36, 0.06);
+  --font-stack: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);font-family:var(--font-stack);color:var(--text);-webkit-font-smoothing:antialiased}
+.container{max-width:1100px;margin:20px auto;padding:0 18px}
+
+/* Top bar */
+.topbar{background:transparent;padding:10px 0}
+.topbar h1{margin:0;font-size:20px}
+.topbar .meta{color:var(--muted);font-size:13px;margin-top:4px}
+
+/* Alert */
+.alert{background:#eef7ff;border-left:4px solid var(--accent);padding:10px 14px;border-radius:8px;margin:12px 0;color:var(--text)}
+
+/* Cards */
+.cards{display:flex;gap:14px;margin:14px 0 22px;flex-wrap:wrap}
+.card{flex:1;background:var(--card);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);min-width:120px;transition:transform .18s,box-shadow .18s,border-color .18s;border:1px solid transparent}
+.card-title{font-size:13px;color:var(--muted)}
+.card-value{font-size:22px;font-weight:700;margin-top:6px}
+.card-value.in{color:var(--success)}
+.card-value.out{color:var(--accent)}
+
+/* Clickable / active card styles */
+.card.clickable{cursor:pointer}
+.card.active{box-shadow:0 12px 30px rgba(37,99,235,0.08);transform:translateY(-6px);border-color:rgba(37,99,235,0.06)}
+
+/* Status badge styles (used by admin today column) */
+.badge{padding:6px 10px;border-radius:999px;font-weight:700;font-size:13px;display:inline-block}
+.badge.on{ background: #ecfdf5; color: var(--success); border:1px solid rgba(16,185,129,0.08); }
+.badge.late{ background: #fff1f2; color: var(--danger); border:1px solid rgba(239,68,68,0.06); }
+.badge.neutral{ background:#f8fafc; color:var(--muted); border:1px solid #f1f5f9; }
+.badge.half{ background:#fff7ed; color:#b45309; border:1px solid rgba(180,83,9,0.06); }
+.badge.absent{ background:#fff7f7; color:#9f1239; border:1px solid rgba(159,18,57,0.06); }
+.badge.leave{ background:#eef2ff; color:#3730a3; border:1px solid rgba(59,130,246,0.06); }
+
+/* Sections */
+.section-heading{font-size:16px;margin:10px 0 8px}
+.add-section, .table-section{background:transparent;margin-bottom:16px}
+
+/* Form */
+.add-form{display:flex;flex-direction:column;gap:10px}
+.form-row{display:flex;gap:10px;align-items:center}
+.form-row input[type="text"], .form-row input[type="search"], .form-row select, .form-row input[type="file"]{
+  padding:10px 12px;border-radius:8px;border:1px solid rgba(15,23,36,0.06);background:var(--card);font-size:14px;color:var(--text);flex:1;
+}
+.form-row input[type="file"]{flex:0 0 auto}
+.btn{padding:10px 12px;border-radius:8px;border:1px solid transparent;cursor:pointer;font-weight:700}
+.btn.primary{background:var(--accent);color:#fff}
+.btn.ghost{background:transparent;border-color:rgba(15,23,36,0.06)}
+
+/* Controls: search + filter */
+.controls{display:flex;gap:10px;align-items:center;margin:8px 0 14px}
+.search input{padding:10px 12px;border-radius:8px;border:1px solid rgba(15,23,36,0.06);background:var(--card);width:100%}
+.filter select{padding:10px 12px;border-radius:8px;border:1px solid rgba(15,23,36,0.06);background:var(--card)}
+
+/* Table */
+.table-wrap{background:var(--card);border-radius:12px;padding:6px;box-shadow:var(--shadow)}
+.data-table{width:100%;border-collapse:collapse;font-size:14px}
+.data-table th, .data-table td{padding:10px 12px;text-align:left;border-bottom:1px solid #f1f5f9}
+.data-table thead th{background:transparent;font-weight:700;color:var(--muted);font-size:13px}
+.data-table tbody tr{position:relative}
+.thumb{width:48px;height:48px;border-radius:8px;object-fit:cover}
+
+/* action button styles */
+.row-actions a, .row-actions button{
+  font-size:13px;padding:6px 10px;border-radius:8px;border:1px solid rgba(15,23,36,0.06);background:#fff;color:var(--muted);cursor:pointer;text-decoration:none;
+}
+.leave-btn{background:#fff7ed;color:#b45309;border:1px solid rgba(180,83,9,0.06)}
+.row-actions .delete{background:transparent;border:0;color:var(--danger);padding:6px 8px}
+
+/* small */
+.small{font-size:13px;color:var(--muted)}
+.kiosk-footer{font-size:13px;color:var(--muted);text-align:center;margin-top:8px}
+
+/* Responsive */
+@media (max-width: 880px){
+  .cards{flex-direction:column}
+  .form-row{flex-direction:column;align-items:stretch}
+  .controls{flex-direction:column;align-items:stretch}
+}
+@media (max-width: 520px){
+  .container{padding:0 12px}
+  .card-value{font-size:18px}
+  .thumb{width:40px;height:40px}
+}
+/* Calendar button style */
+.calendar-btn{
+  display:inline-block;
+  font-size:13px;
+  padding:6px 10px;
+  border-radius:8px;
+  border:1px solid rgba(37,99,235,0.08);
+  background:linear-gradient(180deg,#eef7ff,#f8fbff);
+  color: #1e3a8a;
+  text-decoration:none;
+  cursor:pointer;
+}
+.calendar-btn:hover{
+  transform:translateY(-1px);
+  box-shadow:0 8px 20px rgba(37,99,235,0.06);
+}
+/* CLICK LIGHT / RIPPLE EFFECT FOR DASHBOARD CARDS */
+/* Add near your .card styles (or append to the file) */
+
+.card {
+  position: relative;     /* needed for ripple pseudo-element */
+  overflow: hidden;       /* clip ripple inside card */
+}
+
+/* ripple pseudo-element (starts invisible and scaled down) */
+.card::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 220%;
+  height: 220%;
+  pointer-events: none;
+  transform: translate(-50%, -50%) scale(0);
+  border-radius: 50%;
+  opacity: 0;
+  transition: transform 520ms cubic-bezier(.2,.9,.3,1), opacity 520ms ease;
+  will-change: transform, opacity;
+  /* default center (overwritten by JS using --x / --y) */
+  --rx: 50%;
+  --ry: 50%;
+  transform-origin: var(--rx) var(--ry);
+  background: radial-gradient(circle at var(--rx) var(--ry), rgba(37,99,235,0.18) 0%, rgba(37,99,235,0.10) 25%, rgba(37,99,235,0.03) 45%, transparent 60%);
+}
+
+/* pulse: scale up and fade out */
+.card.pulse::after {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+}
+
+/* subtle box-shadow growth while pulsing (optional, complements ripple) */
+@keyframes cardPulseShadow {
+  0%   { box-shadow: 0 6px 20px rgba(37,99,235,0.06); }
+  40%  { box-shadow: 0 20px 40px rgba(37,99,235,0.12); }
+  100% { box-shadow: 0 6px 20px rgba(37,99,235,0.06); }
+}
+.card.pulse {
+  animation: cardPulseShadow 520ms cubic-bezier(.2,.9,.3,1);
+}
