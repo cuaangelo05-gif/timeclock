@@ -14,7 +14,8 @@
 }
 
 *{box-sizing:border-box}
-html,body{height:100%;margin:0;background:var(--bg);font-family:var(--font-stack);color:var(--text);-webkit-font-smoothing:antialiased}
+html,body{height:100%;margin:0;background:var(--bg);font-family:var(--font-stack);color:var(--text);-webkit-font-smoothing:antialiased;line-height:1.6;}
+body, input, button, select, textarea, table, th, td, a, label { font-family:var(--font-stack); }
 .container{max-width:1100px;margin:20px auto;padding:0 18px}
 
 /* Top bar */
@@ -68,10 +69,11 @@ html,body{height:100%;margin:0;background:var(--bg);font-family:var(--font-stack
 
 /* Table */
 .table-wrap{background:var(--card);border-radius:12px;padding:6px;box-shadow:var(--shadow)}
-.data-table{width:100%;border-collapse:collapse;font-size:14px}
-.data-table th, .data-table td{padding:10px 12px;text-align:left;border-bottom:1px solid #f1f5f9}
-.data-table thead th{background:transparent;font-weight:700;color:var(--muted);font-size:13px}
-.data-table tbody tr{position:relative}
+.data-table, .table{width:100%;border-collapse:collapse;font-size:14px}
+.data-table th, .data-table td, .table th, .table td{padding:10px 12px;text-align:left;border-bottom:1px solid #f1f5f9}
+.data-table thead th, .table thead th{background:transparent;font-weight:700;color:var(--muted);font-size:13px;letter-spacing:0.02em;text-transform:uppercase}
+.data-table tbody tr, .table tbody tr{position:relative}
+.data-table tfoot th, .table tfoot th{border-top:1px solid #e5e7eb;padding-top:12px}
 .thumb{width:48px;height:48px;border-radius:8px;object-fit:cover}
 
 /* action button styles */

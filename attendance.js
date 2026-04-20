@@ -50,7 +50,6 @@ document.addEventListener('DOMContentLoaded', () => {
         // Calculate offset: server time - client time NOW
         serverOffsetMs = data.server_ts_ms - Date.now();
         serverTimeReady = true;
-        console.log('[attendance] Server time synced. Offset:', serverOffsetMs, 'ms');
       }
     } catch (err) {
       console.warn('[attendance] Could not sync server time, using client time only', err);
@@ -83,7 +82,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // ============ UTILITY FUNCTIONS ============
   function log(...args) {
-    console.log('[attendance]', ...args);
+    // Debug logging removed for production
   }
 
   function validateState() {

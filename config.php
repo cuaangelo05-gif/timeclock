@@ -1,11 +1,15 @@
 <?php
-// config.php - update username/password if different
+// config.php - Database configuration
 date_default_timezone_set('Asia/Manila'); // SET GLOBALLY FIRST
 
-$DB_HOST = '127.0.0.1';
-$DB_NAME = 'timeclock';
-$DB_USER = 'root';
-$DB_PASS = ''; // change if you use a password
+// Application constants
+const SHIFT_START_TIME = '09:00:00';
+const GRACE_PERIOD_MINUTES = 15;
+
+$DB_HOST = getenv('DB_HOST') ?: '127.0.0.1';
+$DB_NAME = getenv('DB_NAME') ?: 'timeclock';
+$DB_USER = getenv('DB_USER') ?: 'root';
+$DB_PASS = getenv('DB_PASS') ?: ''; // change if you use a password
 $OPTIONS = [
     PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
     PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,

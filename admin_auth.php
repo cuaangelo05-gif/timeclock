@@ -16,6 +16,17 @@ if (in_array($current, $publicFiles, true)) {
 
 // If logged in, allow
 if (!empty($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true && !empty($_SESSION['admin_user'])) {
+    // Check session timeout (30 minutes)
+    if (isset($_SESSION['last_activity']) && (time() - $_SESSION['last_activity'] > 1800)) {
+        session_unset();
+        session_destroy();
+        $redirect = $_SERVER['REQUEST_URI'] ?? 'admin.php';
+        $loginUrl = 'admin_login.php?redirect=' . urlencode($redirect);
+        header('Location: ' . $loginUrl);
+        exit;
+    } else {
+        $_SESSION['last_activity'] = time();
+    }
     return;
 }
 

@@ -1,0 +1,12 @@
+# Allow image assets to be served directly
+<FilesMatch "\.(jpe?g|png|gif|webp)$">
+    Require all granted
+</FilesMatch>
+
+# Block execution of PHP and script files in uploads
+<FilesMatch "\.(php|php[3457]?|phtml|pl|py|jsp|asp|aspx)$">
+    Require all denied
+</FilesMatch>
+
+# Disable directory listings
+Options -Indexes

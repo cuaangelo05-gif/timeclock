@@ -158,6 +158,32 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                     }
                     // Proceed only if no photo/file errors
                     if ($feedback === '') {
+                        $last_name = trim($_POST['last_name'] ?? '');
+                        $first_name = trim($_POST['first_name'] ?? '');
+                        $middle_initial = strtoupper(trim($_POST['middle_initial'] ?? ''));
+                        $middle_initial = preg_replace('/[^A-Za-z]/', '', $middle_initial);
+                        $middle_initial = $middle_initial !== '' ? strtoupper(substr($middle_initial, 0, 1)) : '';
+
+                        if ($last_name === '' || $first_name === '') {
+                            $feedback = "First name and last name are required.";
+                        }
+
+                        $name = '';
+                        if ($feedback === '') {
+                            $name = $last_name . ', ' . $first_name;
+                            if ($middle_initial !== '') {
+                                $name .= ' ' . $middle_initial . '.';
+                            }
+                        }
+
+                        $base_salary = !empty($_POST['base_salary']) ? (float)$_POST['base_salary'] : null;
+                        $overtime_rate = !empty($_POST['overtime_rate']) ? (float)$_POST['overtime_rate'] : null;
+                        $sss_number = trim($_POST['sss_number'] ?? '');
+                        $philhealth_number = trim($_POST['philhealth_number'] ?? '');
+                        $tin_number = trim($_POST['tin_number'] ?? '');
+                        $nbi_number = trim($_POST['nbi_number'] ?? '');
+                        $pagibig_number = trim($_POST['pagibig_number'] ?? '');
+
                         // Best-effort: ensure columns exist (non-fatal)
                         $ensureCol = function($col, $type = 'VARCHAR(255) NULL') use ($pdo) {
                             try {
@@ -180,10 +206,18 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         $ensureCol('shift', "VARCHAR(100) NULL");
                         $ensureCol('attendance_status', "VARCHAR(50) NULL");
                         $ensureCol('date_hired', "DATE NULL");
+                        $ensureCol('base_salary', "DECIMAL(10,2) NULL");
+                        $ensureCol('overtime_rate', "DECIMAL(10,2) NULL");
+                        $ensureCol('standard_hours_month', "INT NULL DEFAULT 160");
+                        $ensureCol('sss_number', "VARCHAR(64) NULL");
+                        $ensureCol('philhealth_number', "VARCHAR(64) NULL");
+                        $ensureCol('tin_number', "VARCHAR(64) NULL");
+                        $ensureCol('nbi_number', "VARCHAR(64) NULL");
+                        $ensureCol('pagibig_number', "VARCHAR(64) NULL");
 
                         // Insert employee; attempt a multi-column insert
                         try {
-                            $ins = $pdo->prepare('INSERT INTO employees (id_code, name, position, employment_type, shift, division, branch, department, last_status, attendance_status, date_hired, photo) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
+                            $ins = $pdo->prepare('INSERT INTO employees (id_code, name, position, employment_type, shift, division, branch, department, last_status, attendance_status, date_hired, photo, base_salary, overtime_rate, sss_number, philhealth_number, tin_number, nbi_number, pagibig_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
                             // Keep old semantics: set last_status to "out" (system attendance state), attendance_status used for system-level active/inactive
                             $ins->execute([
                                 $id_code,
@@ -197,7 +231,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                 'out',
                                 $attendance_status,
                                 $date_hired,
-                                $photoFilename
+                                $photoFilename,
+                                $base_salary,
+                                $overtime_rate,
+                                $sss_number,
+                                $philhealth_number,
+                                $tin_number,
+                                $nbi_number,
+                                $pagibig_number
                             ]);
                         } catch (Exception $e) {
                             // Fallback: minimal insert then try to update columns
@@ -215,6 +256,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                     if ($department !== '') { $updates[] = 'department = ?'; $params[] = $department; }
                                     if ($attendance_status !== '') { $updates[] = 'attendance_status = ?'; $params[] = $attendance_status; }
                                     if ($date_hired !== '') { $updates[] = 'date_hired = ?'; $params[] = $date_hired; }
+                                    if ($base_salary !== null) { $updates[] = 'base_salary = ?'; $params[] = $base_salary; }
+                                    if ($overtime_rate !== null) { $updates[] = 'overtime_rate = ?'; $params[] = $overtime_rate; }
+                                    if ($sss_number !== '') { $updates[] = 'sss_number = ?'; $params[] = $sss_number; }
+                                    if ($philhealth_number !== '') { $updates[] = 'philhealth_number = ?'; $params[] = $philhealth_number; }
+                                    if ($tin_number !== '') { $updates[] = 'tin_number = ?'; $params[] = $tin_number; }
+                                    if ($nbi_number !== '') { $updates[] = 'nbi_number = ?'; $params[] = $nbi_number; }
+                                    if ($pagibig_number !== '') { $updates[] = 'pagibig_number = ?'; $params[] = $pagibig_number; }
                                     if (!empty($updates)) {
                                         $params[] = $lastId;
                                         $pdo->prepare('UPDATE employees SET ' . implode(', ', $updates) . ' WHERE id = ?')->execute($params);
@@ -905,7 +953,7 @@ if (isset($_GET['ajax'])) {
 
     .field { display:flex;flex-direction:column; gap:6px; }
     label.field-label { font-size:13px;color:var(--muted); }
-    input[type="text"], input[type="date"], select, input[type="file"]{
+    input[type="text"], input[type="number"], input[type="date"], select, input[type="file"]{
       padding:10px;border-radius:8px;border:1px solid var(--surface-2);background:transparent;font-size:14px;width:100%;box-sizing:border-box;
     }
     .photo-preview { width:100%;height:120px;border-radius:8px;background:#f8fafc;border:1px dashed #e6eef8;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;overflow:hidden;object-fit:cover; }
@@ -915,6 +963,20 @@ if (isset($_GET['ajax'])) {
     .btn.ghost{background:transparent;border:1px solid var(--surface-2);color:var(--muted);padding:8px 12px;border-radius:8px}
 
     .validation-error { color: var(--danger); font-size:13px; margin-top:6px; display:none; }
+
+    .payroll-summary { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
+    .payroll-summary .metric-card { flex:1; min-width:180px; background:#f8fafc; border:1px solid rgba(226,232,240,0.8); border-radius:12px; padding:12px 14px; }
+    .payroll-summary .metric-card .metric-label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.04em; }
+    .payroll-summary .metric-card .metric-value { font-size:18px; font-weight:700; color:#111827; }
+    .payroll-employee-link { color: var(--accent); text-decoration: none; font-weight:700; }
+    .payroll-employee-link:hover { text-decoration: underline; }
+
+    .data-table { width:100%; border-collapse:collapse; font-size:14px; margin-top:12px; }
+    .data-table th, .data-table td { padding:12px 14px; text-align:left; border-bottom:1px solid #eff2f7; }
+    .data-table thead th { background:rgba(248,250,252,0.9); font-weight:700; color:var(--muted); font-size:13px; }
+    .data-table tbody tr:hover { background:rgba(37,99,235,0.05); }
+    .data-table tfoot th { padding-top:14px; border-top:1px solid #dbeafe; }
+    .data-table tfoot th[colspan] { text-align:left; }
 
     /* On smaller screens stack vertically */
     @media (max-width: 980px){
@@ -964,6 +1026,7 @@ if (isset($_GET['ajax'])) {
         <a href="#attendance" >Attendance</a>
         <a href="#departments" data-section="departments">Departments <span class="count"><?php echo count($departments); ?></span></a>
         <a href="#reports" data-section="reports">Reports</a>
+        <a href="#payroll" data-section="payroll">Payroll</a>
         <a href="#settings" data-section="settings">Settings</a>
       </nav>
 
@@ -1074,14 +1137,51 @@ if (isset($_GET['ajax'])) {
                     <input id="id_code" name="id_code" type="text" placeholder="Unique ID (e.g. 3001)" required maxlength="64" pattern="[A-Za-z0-9\-_]{2,64}" title="Letters, numbers, - or _ (2-64 chars)">
                   </div>
 
-                  <div class="field">
-                    <label class="field-label" for="name">Full Name</label>
-                    <input id="name" name="name" type="text" placeholder="First and last name" required maxlength="255">
+                  <div class="field" style="display:flex;gap:8px">
+                    <div class="field" style="flex:1">
+                      <label class="field-label" for="last_name">Last Name</label>
+                      <input id="last_name" name="last_name" type="text" placeholder="Last name" required maxlength="255">
+                    </div>
+                    <div class="field" style="flex:1">
+                      <label class="field-label" for="first_name">First Name</label>
+                      <input id="first_name" name="first_name" type="text" placeholder="First name" required maxlength="255">
+                    </div>
+                    <div class="field" style="flex:0 0 120px">
+                      <label class="field-label" for="middle_initial">Middle Initial</label>
+                      <input id="middle_initial" name="middle_initial" type="text" placeholder="M" maxlength="1">
+                    </div>
                   </div>
 
                   <div class="field">
                     <label class="field-label" for="date_hired">Date Hired</label>
                     <input id="date_hired" name="date_hired" type="date" value="<?php echo date('Y-m-d'); ?>" required>
+                  </div>
+
+                  <div class="field" style="display:flex;gap:8px">
+                    <div class="field" style="flex:1">
+                      <label class="field-label" for="sss_number">SSS Number</label>
+                      <input id="sss_number" name="sss_number" type="text" maxlength="64" placeholder="e.g. 01-2345678-9">
+                    </div>
+                    <div class="field" style="flex:1">
+                      <label class="field-label" for="philhealth_number">PhilHealth Number</label>
+                      <input id="philhealth_number" name="philhealth_number" type="text" maxlength="64" placeholder="e.g. 12-345678901-2">
+                    </div>
+                  </div>
+
+                  <div class="field" style="display:flex;gap:8px">
+                    <div class="field" style="flex:1">
+                      <label class="field-label" for="tin_number">TIN / Tax ID</label>
+                      <input id="tin_number" name="tin_number" type="text" maxlength="64" placeholder="e.g. 123-456-789">
+                    </div>
+                    <div class="field" style="flex:1">
+                      <label class="field-label" for="nbi_number">NBI Clearance No.</label>
+                      <input id="nbi_number" name="nbi_number" type="text" maxlength="64" placeholder="NBI clearance number">
+                    </div>
+                  </div>
+
+                  <div class="field">
+                    <label class="field-label" for="pagibig_number">Pag-IBIG Number</label>
+                    <input id="pagibig_number" name="pagibig_number" type="text" maxlength="64" placeholder="Pag-IBIG ID number">
                   </div>
                 </div>
 
@@ -1116,7 +1216,18 @@ if (isset($_GET['ajax'])) {
                       <input id="shift" name="shift" type="text" placeholder="e.g. 08:30-17:30" required maxlength="100">
                     </div>
                   </div>
-                </div>
+
+                  <div class="field" style="display:flex;gap:8px">
+                    <div class="field" style="flex:1">
+                      <label class="field-label" for="base_salary">Base Salary (Monthly)</label>
+                      <input id="base_salary" name="base_salary" type="number" step="0.01" placeholder="e.g. 50000.00">
+                    </div>
+
+                    <div class="field" style="flex:1">
+                      <label class="field-label" for="overtime_rate">Overtime Rate (per hour)</label>
+                      <input id="overtime_rate" name="overtime_rate" type="number" step="0.01" placeholder="e.g. 150.00">
+                    </div>
+                  </div>
 
                 <!-- Photo & system group -->
                 <div class="group-photo">
@@ -1843,6 +1954,233 @@ tr.appendChild(tdOut);
         </div>
       </section>
 
+      <!-- Payroll section -->
+      <section id="section-payroll" class="section" aria-labelledby="payroll-h">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h2 id="payroll-h" style="margin:0">Payroll</h2>
+          <div class="small muted">View computed salaries</div>
+        </div>
+
+        <div class="card">
+          <p class="small muted">Select a month to compute salaries based on attendance hours.</p>
+          <form method="get" action="admin.php" style="margin-bottom:16px">
+            <label for="payroll_month">Month:</label>
+            <input type="month" id="payroll_month" name="month" value="<?php echo htmlspecialchars($_GET['month'] ?? date('Y-m')); ?>" required>
+            <button type="submit" class="btn primary">Compute Salaries</button>
+          </form>
+
+          <?php
+          if (isset($_GET['month'])) {
+            $month = $_GET['month'];
+            if (!preg_match('/^[0-9]{4}-[0-9]{2}$/', $month)) {
+              echo "<p class='small muted'>Invalid month selected.</p>";
+            } else {
+              $year = substr($month, 0, 4);
+              $mon = substr($month, 5, 2);
+              $startDate = "$year-$mon-01";
+              $endDate = date('Y-m-t', strtotime($startDate));
+              $payrollEmpId = isset($_GET['payroll_emp']) ? (int)$_GET['payroll_emp'] : 0;
+
+              $stdHoursColumn = '';
+              try {
+                $pdo->query('SELECT standard_hours_month FROM employees LIMIT 1');
+                $stdHoursColumn = ', standard_hours_month';
+              } catch (Exception $e) {
+                $stdHoursColumn = '';
+              }
+
+              $stmt = $pdo->prepare('SELECT id, id_code, name, department, base_salary, overtime_rate' . $stdHoursColumn . ' FROM employees WHERE base_salary IS NOT NULL ORDER BY name');
+              $stmt->execute();
+              $emps = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+              if (empty($emps)) {
+                echo "<p class='small muted'>No payroll data available yet. Please assign base salary values to employees.</p>";
+              } else {
+                $fetchAttendanceByDate = function($employeeId, $from, $to) use ($pdo) {
+                  $stmt = $pdo->prepare("SELECT event_type, created_at FROM attendance WHERE employee_id = ? AND DATE(created_at) BETWEEN ? AND ? AND event_type IN ('in','out') ORDER BY created_at ASC");
+                  $stmt->execute([$employeeId, $from, $to]);
+                  $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+                  $days = [];
+                  foreach ($rows as $r) {
+                    $day = substr($r['created_at'], 0, 10);
+                    if (!isset($days[$day])) {
+                      $days[$day] = ['in' => null, 'out' => null];
+                    }
+                    if ($r['event_type'] === 'in') {
+                      if ($days[$day]['in'] === null || strcmp($r['created_at'], $days[$day]['in']) < 0) {
+                        $days[$day]['in'] = $r['created_at'];
+                      }
+                    }
+                    if ($r['event_type'] === 'out') {
+                      if ($days[$day]['out'] === null || strcmp($r['created_at'], $days[$day]['out']) > 0) {
+                        $days[$day]['out'] = $r['created_at'];
+                      }
+                    }
+                  }
+                  return $days;
+                };
+
+                $computePayroll = function($employee, $from, $to) use ($fetchAttendanceByDate) {
+                  $base = (float)($employee['base_salary'] ?? 0);
+                  $otRate = (float)($employee['overtime_rate'] ?? 0);
+                  $stdHours = isset($employee['standard_hours_month']) ? (int)$employee['standard_hours_month'] : 160;
+                  $days = $fetchAttendanceByDate($employee['id'], $from, $to);
+                  $workedHours = 0;
+                  foreach ($days as $day) {
+                    if (!empty($day['in']) && !empty($day['out'])) {
+                      $inTs = strtotime($day['in']);
+                      $outTs = strtotime($day['out']);
+                      if ($outTs > $inTs) {
+                        $workedHours += ($outTs - $inTs) / 3600;
+                      }
+                    }
+                  }
+                  $otHours = max(0, $workedHours - $stdHours);
+                  $otPay = $otHours * $otRate;
+                  $total = $workedHours > 0 ? $base + $otPay : 0;
+                  $taxRate = 0.12;
+                  $tax = round($total * $taxRate, 2);
+                  return [
+                    'base_salary' => $base,
+                    'overtime_rate' => $otRate,
+                    'standard_hours_month' => $stdHours,
+                    'worked_hours' => $workedHours,
+                    'ot_hours' => $otHours,
+                    'ot_pay' => $otPay,
+                    'total_pay' => $total,
+                    'tax_amount' => $tax,
+                    'net_pay' => max(0, $total - $tax),
+                  ];
+                };
+
+                $payrollRows = [];
+                $totalBase = 0;
+                $totalOTPay = 0;
+                $totalSalary = 0;
+                $totalEmployees = count($emps);
+                $selectedEmp = null;
+                $selectedEmployeeDetails = null;
+
+                foreach ($emps as $emp) {
+                  if ($payrollEmpId === (int)$emp['id']) {
+                    $selectedEmp = $emp;
+                  }
+                  $details = $computePayroll($emp, $startDate, $endDate);
+                  $payrollRows[] = [
+                    'id' => (int)$emp['id'],
+                    'name' => htmlspecialchars($emp['name']),
+                    'id_code' => htmlspecialchars($emp['id_code']),
+                    'department' => htmlspecialchars($emp['department'] ?? '—'),
+                    'base' => $details['base_salary'],
+                    'hours' => $details['worked_hours'],
+                    'ot_hours' => $details['ot_hours'],
+                    'ot_pay' => $details['ot_pay'],
+                    'total' => $details['total_pay'],
+                  ];
+                  $totalBase += $details['base_salary'];
+                  $totalOTPay += $details['ot_pay'];
+                  $totalSalary += $details['total_pay'];
+                }
+
+                if ($selectedEmp) {
+                  $selectedEmployeeDetails = $computePayroll($selectedEmp, $startDate, $endDate);
+                  $history = [];
+                  for ($i = 5; $i >= 0; $i--) {
+                    $historyMonth = date('Y-m-01', strtotime("-{$i} months", strtotime($startDate)));
+                    $historyEnd = date('Y-m-t', strtotime($historyMonth));
+                    $historyDetails = $computePayroll($selectedEmp, $historyMonth, $historyEnd);
+                    $history[] = [
+                      'label' => date('F Y', strtotime($historyMonth)),
+                      'base' => $historyDetails['base_salary'],
+                      'hours' => $historyDetails['worked_hours'],
+                      'ot_hours' => $historyDetails['ot_hours'],
+                      'ot_pay' => $historyDetails['ot_pay'],
+                      'total' => $historyDetails['total_pay'],
+                    ];
+                  }
+                  $selectedEmployeeDetails['history'] = $history;
+                }
+
+                echo "<div class='payroll-summary'>";
+                echo "<div class='metric-card'><span class='metric-label'>Month</span><span class='metric-value'>" . htmlspecialchars(date('F Y', strtotime($startDate))) . "</span></div>";
+                echo "<div class='metric-card'><span class='metric-label'>Employees</span><span class='metric-value'>" . number_format($totalEmployees) . "</span></div>";
+                echo "<div class='metric-card'><span class='metric-label'>Base payroll</span><span class='metric-value'>₱" . number_format($totalBase, 2) . "</span></div>";
+                echo "<div class='metric-card'><span class='metric-label'>Overtime pay</span><span class='metric-value'>₱" . number_format($totalOTPay, 2) . "</span></div>";
+                echo "<div class='metric-card'><span class='metric-label'>Total payroll</span><span class='metric-value'>₱" . number_format($totalSalary, 2) . "</span></div>";
+                echo "</div>";
+
+                echo "<table class='data-table'>";
+                echo "<thead><tr><th>Employee</th><th>Department</th><th>Base Salary</th><th>Hours Worked</th><th>Overtime Hours</th><th>Overtime Pay</th><th>Total Salary</th></tr></thead><tbody>";
+                foreach ($payrollRows as $row) {
+                  $link = 'admin.php?month=' . rawurlencode($month) . '&payroll_emp=' . $row['id'] . '#payroll';
+                  echo "<tr>";
+                  echo "<td><a class='payroll-employee-link' href='$link'>" . $row['name'] . "</a> (" . $row['id_code'] . ")</td>";
+                  echo "<td>" . $row['department'] . "</td>";
+                  echo "<td>₱" . number_format($row['base'], 2) . "</td>";
+                  echo "<td>" . number_format($row['hours'], 2) . "</td>";
+                  echo "<td>" . number_format($row['ot_hours'], 2) . "</td>";
+                  echo "<td>₱" . number_format($row['ot_pay'], 2) . "</td>";
+                  echo "<td><strong>₱" . number_format($row['total'], 2) . "</strong></td>";
+                  echo "</tr>";
+                }
+                echo "</tbody></table>";
+
+                if ($payrollEmpId && $selectedEmployeeDetails) {
+                  echo "<div class='card' style='margin-top:20px;padding:18px;'>";
+                  echo "<div style='display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px;'>";
+                  echo "<div><h3 style='margin:0 0 8px'>" . htmlspecialchars($selectedEmp['name']) . "</h3>";
+                  echo "<div class='small muted'>" . htmlspecialchars($selectedEmp['department'] ?? 'No department') . "</div>";
+                  echo "</div>";
+                  echo "<a href='admin.php?month=" . rawurlencode($month) . "#payroll' class='btn ghost' style='padding:8px 12px;'>Back to payroll list</a>";
+                  echo "</div>";
+
+                  if ($selectedEmployeeDetails['worked_hours'] == 0) {
+                    echo "<div class='small muted' style='padding:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;text-align:center;'>No attendance records found for this month. Total salary: ₱0.00</div>";
+                  } else {
+                    echo "<div class='payroll-summary' style='margin-bottom:18px;'>";
+                    echo "<div class='metric-card'><span class='metric-label'>Employee</span><span class='metric-value'>" . htmlspecialchars($selectedEmp['name']) . "</span></div>";
+                    echo "<div class='metric-card'><span class='metric-label'>Employee ID</span><span class='metric-value'>" . htmlspecialchars($selectedEmp['id_code']) . "</span></div>";
+                    echo "<div class='metric-card'><span class='metric-label'>Base salary</span><span class='metric-value'>₱" . number_format($selectedEmployeeDetails['base_salary'], 2) . "</span></div>";
+                    echo "<div class='metric-card'><span class='metric-label'>Overtime rate</span><span class='metric-value'>₱" . number_format($selectedEmployeeDetails['overtime_rate'], 2) . "</span></div>";
+                    echo "</div>";
+                    echo "<div style='display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;'>";
+                    echo "<div style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;'>";
+                    echo "<div class='metric-label'>Current month payroll</div>";
+                    echo "<div class='metric-value'>₱" . number_format($selectedEmployeeDetails['total_pay'], 2) . "</div>";
+                    echo "<div class='small muted' style='margin-top:8px;'>Hours: " . number_format($selectedEmployeeDetails['worked_hours'], 2) . ". Overtime: " . number_format($selectedEmployeeDetails['ot_hours'], 2) . "</div>";
+                    echo "</div>";
+                    echo "<div style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;'>";
+                    echo "<div class='metric-label'>Tax estimate</div>";
+                    echo "<div class='metric-value'>₱" . number_format($selectedEmployeeDetails['tax_amount'], 2) . "</div>";
+                    echo "<div class='small muted' style='margin-top:8px;'>Net pay: ₱" . number_format($selectedEmployeeDetails['net_pay'], 2) . "</div>";
+                    echo "</div>";
+                    echo "</div>";
+                    echo "<div style='margin-top:18px;'>";
+                    echo "<h4 style='margin-bottom:10px'>Payroll history</h4>";
+                    echo "<table class='data-table' style='width:100%;'>";
+                    echo "<thead><tr><th>Month</th><th>Base Salary</th><th>Hours Worked</th><th>Overtime Hours</th><th>Overtime Pay</th><th>Total Pay</th></tr></thead><tbody>";
+                    foreach ($selectedEmployeeDetails['history'] as $hist) {
+                      echo "<tr>";
+                      echo "<td>" . htmlspecialchars($hist['label']) . "</td>";
+                      echo "<td>₱" . number_format($hist['base'], 2) . "</td>";
+                      echo "<td>" . number_format($hist['hours'], 2) . "</td>";
+                      echo "<td>" . number_format($hist['ot_hours'], 2) . "</td>";
+                      echo "<td>₱" . number_format($hist['ot_pay'], 2) . "</td>";
+                      echo "<td>₱" . number_format($hist['total'], 2) . "</td>";
+                      echo "</tr>";
+                    }
+                    echo "</tbody></table>";
+                    echo "</div>";
+                  }
+                  echo "</div>";
+                }
+              }
+            }
+          }
+          ?>
+        </div>
+      </section>
+
       <!-- Settings section (placeholder) -->
       <section id="section-settings" class="section" aria-labelledby="settings-h">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -1860,74 +2198,70 @@ tr.appendChild(tdOut);
 
   <!-- Small client-side router to show/hide sections and highlight nav + form behavior -->
   <script>
+      window.autoOpenPayroll = <?php echo isset($_GET['month']) ? 'true' : 'false'; ?>;
     (function(){
       const navLinks = Array.from(document.querySelectorAll('.nav a[data-section]'));
       const sections = Array.from(document.querySelectorAll('.section'));
-      const sectionById = {};
-      sections.forEach(s => sectionById[s.id.replace('section-','')] = s);
+      const sectionByName = {};
+      sections.forEach(s => {
+        if (!s.id) return;
+        const name = s.id.startsWith('section-') ? s.id.slice(8) : s.id;
+        sectionByName[name] = s;
+      });
 
       function setActiveSection(name, pushState = false) {
-        // hide all
         sections.forEach(s => s.classList.remove('active'));
-        // remove active from nav
         navLinks.forEach(a => {
           a.classList.remove('active');
           a.removeAttribute('aria-current');
         });
 
-        // show requested
-        const target = sectionById[name];
-        if (target) {
-          target.classList.add('active');
-        } else {
-          // fallback to dashboard
-          sectionById['dashboard'].classList.add('active');
+        let target = sectionByName[name];
+        if (!target) {
           name = 'dashboard';
+          target = sectionByName[name];
         }
 
-        // highlight nav
-        const link = navLinks.find(a => (a.dataset.section === name));
+        if (target) {
+          target.classList.add('active');
+        }
+
+        const link = navLinks.find(a => a.dataset.section === name);
         if (link) {
           link.classList.add('active');
           link.setAttribute('aria-current','page');
         }
 
-        // update hash without scrolling
+        const newHash = '#' + name;
         if (pushState) {
-          history.pushState({section: name}, '', '#'+name);
+          history.pushState({section: name}, '', newHash);
         } else {
-          // replace state so loading behavior stays consistent
-          history.replaceState({section: name}, '', '#'+name);
+          history.replaceState({section: name}, '', newHash);
         }
       }
 
-      // wire click events
       navLinks.forEach(a => {
         a.addEventListener('click', function(e){
           e.preventDefault();
           const sec = this.dataset.section;
           setActiveSection(sec, true);
-          // focus main content for accessibility
-          const main = document.querySelector('main');
-          if (main) main.focus();
         });
       });
 
-      // initialize based on hash (default to dashboard)
       function initialFromHash() {
         const hash = (location.hash || '').replace('#','');
-        const valid = Object.keys(sectionById);
-        if (hash && valid.includes(hash)) {
+        if (hash && sectionByName[hash]) {
           return hash;
+        }
+        if (window.autoOpenPayroll === true && sectionByName['payroll']) {
+          return 'payroll';
         }
         return 'dashboard';
       }
 
-      // On load
       const initial = initialFromHash();
       setActiveSection(initial, false);
 
-      // handle back/forward
       window.addEventListener('popstate', function(e){
         const sec = (e.state && e.state.section) ? e.state.section : initialFromHash();
         setActiveSection(sec, false);
@@ -1986,27 +2320,22 @@ tr.appendChild(tdOut);
       if (shouldShow) visibleCount++;
     });
     
-    console.log(`Showing ${visibleCount} of ${rows.length} employees`);
   }
   
   // Wire up listeners
   if (empSearch) {
     empSearch.addEventListener('input', applyEmployeeFilters);
-    console.log('Search input listener attached');
   }
   
   if (empFilterDept) {
     empFilterDept.addEventListener('change', applyEmployeeFilters);
-    console.log('Department filter listener attached');
   }
 })();
-      // When switching to employees, ensure the latest search value is applied
+      // When switching to employees, ensure filters are applied
       navLinks.forEach(a => {
         a.addEventListener('click', function(){
           if (this.dataset.section === 'employees') {
-            // sync global -> emp
-            if (globalSearch && empSearch) {
-              empSearch.value = (globalSearch.value || '');
+            if (empSearch) {
               applyEmployeeFilters();
             }
           }
@@ -2120,7 +2449,6 @@ fetch('sync_time.php', { cache: 'no-store' })
       // Calculate offset: how much ahead/behind server is
       const clientNowMs = Date.now();
       serverOffsetMs = Number(data.server_ts_ms) - clientNowMs;
-      console.log('[time-sync] Server offset:', serverOffsetMs, 'ms');
     }
   })
   .catch(err => {

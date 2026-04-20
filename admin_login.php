@@ -3,6 +3,21 @@
 require 'config.php';
 if (session_status() === PHP_SESSION_NONE) session_start();
 
+// Check if any admins exist for initial setup
+$adminCount = 0;
+try {
+    $stmt = $pdo->query('SELECT COUNT(*) FROM admins');
+    $adminCount = $stmt->fetchColumn();
+} catch (Exception $e) {
+    // Table might not exist yet
+    $adminCount = 0;
+}
+
+// Generate CSRF token if not exists
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
 // If already logged in, redirect
 if (!empty($_SESSION['admin_logged_in']) && $_SESSION['admin_logged_in'] === true) {
     $dest = $_GET['redirect'] ?? 'admin.php';
@@ -14,35 +29,40 @@ $error = '';
 $redirect = $_GET['redirect'] ?? 'admin.php';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = trim($_POST['username'] ?? '');
-    $pw = $_POST['password'] ?? '';
-    $redirect = $_POST['redirect'] ?? $redirect;
-
-    if ($username === '' || $pw === '') {
-        $error = 'Enter username and password.';
+    // Check CSRF token
+    if (!isset($_POST['csrf_token']) || $_POST['csrf_token'] !== $_SESSION['csrf_token']) {
+        $error = 'Invalid request.';
     } else {
-        try {
-            $stmt = $pdo->prepare('SELECT id, username, password_hash, fullname FROM admins WHERE username = ? LIMIT 1');
-            $stmt->execute([$username]);
-            $admin = $stmt->fetch(PDO::FETCH_ASSOC);
+        $username = trim($_POST['username'] ?? '');
+        $pw = $_POST['password'] ?? '';
+        $redirect = $_POST['redirect'] ?? $redirect;
 
-            if (!$admin || !isset($admin['password_hash']) || !password_verify($pw, $admin['password_hash'])) {
-                // small delay to slow brute-force attempts
-                usleep(300000);
-                $error = 'Incorrect username or password.';
-            } else {
-                // Successful login
-                $_SESSION['admin_logged_in'] = true;
-                $_SESSION['admin_user'] = $admin['username'];
-                $_SESSION['admin_fullname'] = $admin['fullname'] ?? '';
-                session_regenerate_id(true);
-                header('Location: ' . $redirect);
-                exit;
+        if ($username === '' || $pw === '') {
+            $error = 'Enter username and password.';
+        } else {
+            try {
+                $stmt = $pdo->prepare('SELECT id, username, password_hash, fullname FROM admins WHERE username = ? LIMIT 1');
+                $stmt->execute([$username]);
+                $admin = $stmt->fetch(PDO::FETCH_ASSOC);
+
+                if (!$admin || !isset($admin['password_hash']) || !password_verify($pw, $admin['password_hash'])) {
+                    // small delay to slow brute-force attempts
+                    usleep(300000);
+                    $error = 'Incorrect username or password.';
+                } else {
+                    // Successful login
+                    $_SESSION['admin_logged_in'] = true;
+                    $_SESSION['admin_user'] = $admin['username'];
+                    $_SESSION['admin_fullname'] = $admin['fullname'] ?? '';
+                    session_regenerate_id(true);
+                    header('Location: ' . $redirect);
+                    exit;
+                }
+            } catch (Exception $e) {
+                // Do not disclose DB errors to the user
+                $error = 'Login failed due to server error.';
+                // optionally log $e->getMessage() to a file
             }
-        } catch (Exception $e) {
-            // Do not disclose DB errors to the user
-            $error = 'Login failed due to server error.';
-            // optionally log $e->getMessage() to a file
         }
     }
 }
@@ -68,9 +88,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 <body>
   <main class="login-wrap" role="main">
     <h1>Admin login</h1>
+    <?php if ($adminCount == 0): ?>
+    <p style="color: #d32f2f; margin: 8px 0; font-size: 14px;">No admin accounts found. <a href="create_admin_user.php" style="color: #2563eb; text-decoration: underline;">Create the first admin account</a></p>
+    <?php endif; ?>
     <?php if ($error): ?><div class="error"><?php echo htmlspecialchars($error); ?></div><?php endif; ?>
     <form method="post" action="admin_login.php">
       <input type="hidden" name="redirect" value="<?php echo htmlspecialchars($redirect); ?>">
+      <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
       <div class="field">
         <label class="sr-only" for="username">Username</label>
         <input id="username" name="username" type="text" placeholder="Username" required autofocus>

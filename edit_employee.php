@@ -11,7 +11,7 @@ if ($employeeId <= 0) {
 
 // Load employee
 try {
-    $stmt = $pdo->prepare('SELECT id, id_code, name, department, position, employment_type, shift, attendance_status, date_hired, photo FROM employees WHERE id = ? LIMIT 1');
+    $stmt = $pdo->prepare('SELECT id, id_code, name, department, position, employment_type, shift, attendance_status, date_hired, photo, base_salary, overtime_rate, sss_number, philhealth_number, tin_number, nbi_number, pagibig_number FROM employees WHERE id = ? LIMIT 1');
     $stmt->execute([$employeeId]);
     $emp = $stmt->fetch(PDO::FETCH_ASSOC);
     if (!$emp) {
@@ -32,23 +32,63 @@ try {
 }
 
 $feedback = '';
+$last_name = '';
+$first_name = '';
+$middle_initial = '';
+if (!empty($emp['name'])) {
+    if (preg_match('/^\s*([^,]+),\s*([^\s]+)(?:\s+([A-Za-z]))?\.?\s*$/', $emp['name'], $m)) {
+        $last_name = trim($m[1]);
+        $first_name = trim($m[2]);
+        $middle_initial = isset($m[3]) ? strtoupper(substr(trim($m[3]), 0, 1)) : '';
+    } else {
+        $parts = preg_split('/\s+/', trim($emp['name']));
+        if (count($parts) === 1) {
+            $first_name = $parts[0];
+        } elseif (count($parts) === 2) {
+            $first_name = $parts[0];
+            $last_name = $parts[1];
+        } else {
+            $first_name = array_shift($parts);
+            $last_name = array_pop($parts);
+            $middle_initial = strtoupper(substr($parts[0] ?? '', 0, 1));
+        }
+    }
+}
 
 // Handle update
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'update_employee') {
-    $name = trim($_POST['name'] ?? '');
+    $last_name = trim($_POST['last_name'] ?? '');
+    $first_name = trim($_POST['first_name'] ?? '');
+    $middle_initial = strtoupper(trim($_POST['middle_initial'] ?? ''));
+    $middle_initial = preg_replace('/[^A-Za-z]/', '', $middle_initial);
+    $middle_initial = $middle_initial !== '' ? strtoupper(substr($middle_initial, 0, 1)) : '';
+    $name = '';
+    if ($last_name !== '' && $first_name !== '') {
+        $name = $last_name . ', ' . $first_name;
+        if ($middle_initial !== '') {
+            $name .= ' ' . $middle_initial . '.';
+        }
+    }
     $department = trim($_POST['department'] ?? '');
     $position = trim($_POST['position'] ?? '');
     $employment_type = trim($_POST['employment_type'] ?? '');
     $shift = trim($_POST['shift'] ?? '');
     $attendance_status = trim($_POST['attendance_status'] ?? '');
     $date_hired = trim($_POST['date_hired'] ?? '');
+    $base_salary = !empty($_POST['base_salary']) ? (float)$_POST['base_salary'] : null;
+    $overtime_rate = !empty($_POST['overtime_rate']) ? (float)$_POST['overtime_rate'] : null;
+    $sss_number = trim($_POST['sss_number'] ?? '');
+    $philhealth_number = trim($_POST['philhealth_number'] ?? '');
+    $tin_number = trim($_POST['tin_number'] ?? '');
+    $nbi_number = trim($_POST['nbi_number'] ?? '');
+    $pagibig_number = trim($_POST['pagibig_number'] ?? '');
 
-    if ($name === '' || $department === '' || $position === '' || $employment_type === '' || $shift === '' || $attendance_status === '') {
+    if ($last_name === '' || $first_name === '' || $department === '' || $position === '' || $employment_type === '' || $shift === '' || $attendance_status === '') {
         $feedback = "All fields are required.";
     } else {
         try {
-            $stmt = $pdo->prepare('UPDATE employees SET name = ?, department = ?, position = ?, employment_type = ?, shift = ?, attendance_status = ?, date_hired = ? WHERE id = ?');
-            $stmt->execute([$name, $department, $position, $employment_type, $shift, $attendance_status, $date_hired, $employeeId]);
+            $stmt = $pdo->prepare('UPDATE employees SET name = ?, department = ?, position = ?, employment_type = ?, shift = ?, attendance_status = ?, date_hired = ?, base_salary = ?, overtime_rate = ?, sss_number = ?, philhealth_number = ?, tin_number = ?, nbi_number = ?, pagibig_number = ? WHERE id = ?');
+            $stmt->execute([$name, $department, $position, $employment_type, $shift, $attendance_status, $date_hired, $base_salary, $overtime_rate, $sss_number, $philhealth_number, $tin_number, $nbi_number, $pagibig_number, $employeeId]);
             $feedback = "Employee updated successfully.";
             $emp['name'] = $name;
             $emp['department'] = $department;
@@ -125,9 +165,19 @@ $photoPath = (!empty($emp['photo']) && file_exists(__DIR__ . '/uploads/' . $emp[
         <input type="hidden" name="action" value="update_employee">
 
         <div class="form-row">
-          <div class="field">
-            <label for="name">Full Name</label>
-            <input id="name" name="name" type="text" value="<?php echo htmlspecialchars($emp['name']); ?>" required>
+          <div class="field" style="display:flex;gap:8px;flex:1;">
+            <div style="flex:1">
+              <label for="last_name">Last Name</label>
+              <input id="last_name" name="last_name" type="text" value="<?php echo htmlspecialchars($last_name); ?>" required>
+            </div>
+            <div style="flex:1">
+              <label for="first_name">First Name</label>
+              <input id="first_name" name="first_name" type="text" value="<?php echo htmlspecialchars($first_name); ?>" required>
+            </div>
+            <div style="flex:0 0 120px">
+              <label for="middle_initial">Middle Initial</label>
+              <input id="middle_initial" name="middle_initial" type="text" value="<?php echo htmlspecialchars($middle_initial); ?>" maxlength="1" placeholder="M">
+            </div>
           </div>
           <div class="field">
             <label for="id_code">Employee ID Code (read-only)</label>
@@ -164,6 +214,46 @@ $photoPath = (!empty($emp['photo']) && file_exists(__DIR__ . '/uploads/' . $emp[
           <div class="field">
             <label for="shift">Work Schedule / Shift</label>
             <input id="shift" name="shift" type="text" placeholder="e.g. 08:30-17:30" value="<?php echo htmlspecialchars($emp['shift'] ?? ''); ?>" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="base_salary">Base Salary (Monthly)</label>
+            <input id="base_salary" name="base_salary" type="number" step="0.01" value="<?php echo htmlspecialchars($emp['base_salary'] ?? ''); ?>" placeholder="e.g. 50000.00">
+          </div>
+          <div class="field">
+            <label for="overtime_rate">Overtime Rate (per hour)</label>
+            <input id="overtime_rate" name="overtime_rate" type="number" step="0.01" value="<?php echo htmlspecialchars($emp['overtime_rate'] ?? ''); ?>" placeholder="e.g. 150.00">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="sss_number">SSS Number</label>
+            <input id="sss_number" name="sss_number" type="text" value="<?php echo htmlspecialchars($emp['sss_number'] ?? ''); ?>" placeholder="e.g. 01-2345678-9">
+          </div>
+          <div class="field">
+            <label for="philhealth_number">PhilHealth Number</label>
+            <input id="philhealth_number" name="philhealth_number" type="text" value="<?php echo htmlspecialchars($emp['philhealth_number'] ?? ''); ?>" placeholder="e.g. 12-345678901-2">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="field">
+            <label for="tin_number">TIN / Tax ID</label>
+            <input id="tin_number" name="tin_number" type="text" value="<?php echo htmlspecialchars($emp['tin_number'] ?? ''); ?>" placeholder="e.g. 123-456-789">
+          </div>
+          <div class="field">
+            <label for="nbi_number">NBI Clearance No.</label>
+            <input id="nbi_number" name="nbi_number" type="text" value="<?php echo htmlspecialchars($emp['nbi_number'] ?? ''); ?>" placeholder="NBI clearance number">
+          </div>
+        </div>
+
+        <div class="form-row full">
+          <div class="field">
+            <label for="pagibig_number">Pag-IBIG Number</label>
+            <input id="pagibig_number" name="pagibig_number" type="text" value="<?php echo htmlspecialchars($emp['pagibig_number'] ?? ''); ?>" placeholder="Pag-IBIG ID number">
           </div>
         </div>
 

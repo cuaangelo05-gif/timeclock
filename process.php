@@ -1,11 +1,6 @@
 <?php
 $start = microtime(true);
 
-// TEMP DEBUG — show PHP errors in the browser (remove after debugging)
-ini_set('display_errors', 1);
-ini_set('display_startup_errors', 1);
-error_reporting(E_ALL);
-
 header('Content-Type: application/json; charset=utf-8');
 require 'config.php';
 
@@ -84,8 +79,8 @@ try {
 
     // compute simple on-time/late for display (shift start 09:00)
     $compute_status = function($datetimeStr, $dateStr = null) {
-        $shiftStart = '09:00:00';
-        $graceMinutes = 15;
+        $shiftStart = SHIFT_START_TIME;
+        $graceMinutes = GRACE_PERIOD_MINUTES;
         if ($dateStr === null) $dateStr = date('Y-m-d');
         try {
             $shiftStartDT = new DateTime($dateStr . ' ' . $shiftStart);

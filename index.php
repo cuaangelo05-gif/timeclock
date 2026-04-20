@@ -211,7 +211,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
     cameraPreview.srcObject = stream;
     await cameraPreview.play();
-    console.log('✅ Camera started');
   } catch (err) {
     console.warn('❌ Camera permission denied or not available:', err);
     cameraPreview.style.display = 'none'; // Hide video on error

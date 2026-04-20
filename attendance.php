@@ -621,7 +621,6 @@ fetch('sync_time.php', { cache: 'no-store' })
       // Calculate offset: how much ahead/behind server is
       const clientNowMs = Date.now();
       serverOffsetMs = Number(data.server_ts_ms) - clientNowMs;
-      console.log('[time-sync] Server offset:', serverOffsetMs, 'ms');
     }
   })
   .catch(err => {
