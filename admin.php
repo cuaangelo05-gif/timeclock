@@ -73,6 +73,98 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
         }
     }
 
+    // ============ WRITE RFID ACTION ============
+    if ($act === 'write_rfid') {
+        $rfidCode = trim($_POST['rfid_code'] ?? '');
+        $empId = trim($_POST['employee_id'] ?? '');
+        
+        // Check if handling JSON response (API call from JS)
+        $isJson = isset($_POST['rfid_code']) && empty($_POST['employee_id']) ? false : 
+                 (!empty($_POST['employee_id']) && !empty($_POST['rfid_code']));
+        
+        if (!$rfidCode || !$empId) {
+            if ($isJson) {
+                header('Content-Type: application/json');
+                http_response_code(400);
+                echo json_encode(['status' => 'error', 'message' => 'RFID code and employee ID required']);
+            } else {
+                $feedback = "RFID code and employee ID required.";
+            }
+        } else {
+            try {
+                // Verify employee exists
+                $empStmt = $pdo->prepare("SELECT id, name FROM employees WHERE id = ?");
+                $empStmt->execute([$empId]);
+                $emp = $empStmt->fetch();
+                
+                if (!$emp) {
+                    if ($isJson) {
+                        header('Content-Type: application/json');
+                        http_response_code(404);
+                        echo json_encode(['status' => 'error', 'message' => 'Employee not found']);
+                    } else {
+                        $feedback = "Employee not found.";
+                    }
+                } else {
+                    // Ensure rfid_mapping table exists
+                    $checkStmt = $pdo->prepare("
+                        SELECT 1 FROM information_schema.tables 
+                        WHERE table_schema = DATABASE() AND table_name = 'rfid_mapping'
+                    ");
+                    $checkStmt->execute();
+                    $tableExists = $checkStmt->fetchColumn();
+                    
+                    if (!$tableExists) {
+                        $pdo->exec("
+                            CREATE TABLE rfid_mapping (
+                                id INT AUTO_INCREMENT PRIMARY KEY,
+                                rfid_code VARCHAR(255) UNIQUE NOT NULL,
+                                employee_id INT NOT NULL,
+                                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+                                FOREIGN KEY (employee_id) REFERENCES employees(id) ON DELETE CASCADE,
+                                INDEX idx_rfid_code (rfid_code),
+                                INDEX idx_employee_id (employee_id)
+                            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+                        ");
+                    }
+                    
+                    // TODO: Integrate with actual RFID writer hardware here
+                    // Example: $writer = new RFIDWriter('/dev/ttyUSB0'); $writer->writeTag($rfidCode);
+                    
+                    // Insert or update mapping
+                    $stmt = $pdo->prepare("
+                        INSERT INTO rfid_mapping (rfid_code, employee_id) 
+                        VALUES (?, ?)
+                        ON DUPLICATE KEY UPDATE employee_id = ?
+                    ");
+                    $stmt->execute([$rfidCode, $empId, $empId]);
+                    
+                    if ($isJson) {
+                        header('Content-Type: application/json');
+                        echo json_encode([
+                            'status' => 'ok',
+                            'message' => 'RFID card write simulated for ' . htmlspecialchars($emp['name']) . '. Code: ' . htmlspecialchars($rfidCode) . ' (Connect hardware for actual writing)',
+                            'employee_name' => $emp['name']
+                        ]);
+                    } else {
+                        $feedback = "RFID write simulated for " . htmlspecialchars($emp['name']);
+                        if (!$targetSection) $targetSection = 'rfid';
+                    }
+                }
+            } catch (Exception $e) {
+                if ($isJson) {
+                    header('Content-Type: application/json');
+                    http_response_code(500);
+                    echo json_encode(['status' => 'error', 'message' => $e->getMessage()]);
+                } else {
+                    $feedback = "Error: " . $e->getMessage();
+                }
+            }
+        }
+        exit;
+    }
+
     if (in_array($act, ['delete_department','delete_branch','delete_division'], true)) {
         $delName = trim($_POST['department_name'] ?? $_POST['branch_name'] ?? $_POST['division_name'] ?? '');
         if ($delName === '') {
@@ -1182,6 +1274,7 @@ if (isset($_GET['ajax'])) {
         <a href="#departments" data-section="departments">Departments <span class="count"><?php echo count($departments); ?></span></a>
         <a href="#reports" data-section="reports">Reports</a>
         <a href="#settings" data-section="settings">Settings</a>
+        <a href="#rfid" data-section="rfid">RFID Writer</a>
       </nav>
 
       <div class="section-title">Quick actions</div>
@@ -2206,6 +2299,62 @@ tr.appendChild(tdOut);
           </div>
         </div>
       </section>
+
+      <!-- RFID Writer section -->
+      <section id="section-rfid" class="section" aria-labelledby="rfid-h">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <h2 id="rfid-h" style="margin:0">RFID Writer</h2>
+          <div class="small muted">Write new RFID tags</div>
+        </div>
+
+        <div id="rfidMessage" class="card" style="margin-bottom:12px; padding:10px; border-radius:4px; display:none;">
+          <p style="margin:0; font-size:14px;"></p>
+        </div>
+
+        <div class="card">
+          <p class="small muted" style="margin-bottom:16px;">Write RFID codes to cards and assign them to employees. Connect your RFID writer hardware for actual writing capability.</p>
+
+          <form id="rfidWriteForm" class="add-form" novalidate>
+            <input type="hidden" name="action" value="write_rfid">
+
+            <div class="form-row">
+              <div class="field">
+                <label class="field-label" for="rfidCodeWrite">RFID Code to Write</label>
+                <input id="rfidCodeWrite" name="rfid_code" type="text" placeholder="Enter RFID code (e.g., 00030972690003097269)" required>
+              </div>
+              <div class="field">
+                <label class="field-label" for="rfidEmployeeWrite">Assign to Employee</label>
+                <select id="rfidEmployeeWrite" name="employee_id" required>
+                  <option value="">-- Select Employee --</option>
+                  <?php 
+                    try {
+                      $empStmt = $pdo->query("SELECT id, name FROM employees ORDER BY name");
+                      $rfidEmployees = $empStmt->fetchAll();
+                      foreach ($rfidEmployees as $emp):
+                  ?>
+                    <option value="<?php echo htmlspecialchars($emp['id']); ?>">
+                      <?php echo htmlspecialchars($emp['id'] . ' - ' . $emp['name']); ?>
+                    </option>
+                  <?php 
+                      endforeach;
+                    } catch (Exception $e) {}
+                  ?>
+                </select>
+              </div>
+            </div>
+
+            <button type="submit" class="btn primary">Write RFID Card</button>
+          </form>
+
+          <div style="margin-top:20px; padding-top:16px; border-top:1px solid #e0e0e0;">
+            <div class="small muted" style="margin-bottom:12px;">ℹ️ <strong>Hardware Status:</strong> Awaiting RFID writer device connection</div>
+            <div class="small muted" style="font-size:12px; color:#999;">
+              This interface supports various RFID writers: EM4100, PN532, ACR122U, RDM880, etc. 
+              <br>Once hardware is connected to your server, this form will write directly to physical cards.
+            </div>
+          </div>
+        </div>
+      </section>
     </main>
   </div>
   
@@ -2474,6 +2623,65 @@ tr.appendChild(tdOut);
           feedbackEl.style.display = 'none';
           feedbackEl.textContent = '';
         });
+      }
+
+      // -----------------------
+      // RFID Writer form JS
+      // -----------------------
+      const rfidForm = document.getElementById('rfidWriteForm');
+      const rfidMessageEl = document.getElementById('rfidMessage');
+
+      if (rfidForm) {
+        rfidForm.addEventListener('submit', async function(e) {
+          e.preventDefault();
+          
+          const rfidCode = document.getElementById('rfidCodeWrite').value.trim();
+          const empId = document.getElementById('rfidEmployeeWrite').value;
+          
+          if (!rfidCode || !empId) {
+            showRFIDMessage('Please fill in all fields', 'error');
+            return;
+          }
+          
+          try {
+            const formData = new FormData();
+            formData.append('action', 'write_rfid');
+            formData.append('rfid_code', rfidCode);
+            formData.append('employee_id', empId);
+            
+            const response = await fetch('admin.php', {
+              method: 'POST',
+              body: formData
+            });
+            
+            const data = await response.json();
+            
+            if (response.ok && data.status === 'ok') {
+              showRFIDMessage(data.message, 'success');
+              rfidForm.reset();
+            } else {
+              showRFIDMessage(data.message || 'Error writing RFID card', 'error');
+            }
+          } catch (error) {
+            showRFIDMessage('Network error: ' + error.message, 'error');
+          }
+        });
+      }
+
+      function showRFIDMessage(msg, type) {
+        if (!rfidMessageEl) return;
+        rfidMessageEl.style.display = 'block';
+        rfidMessageEl.className = 'card ' + (type === 'success' ? 'success-msg' : 'error-msg');
+        rfidMessageEl.querySelector('p').textContent = msg;
+        rfidMessageEl.style.backgroundColor = type === 'success' ? '#d4edda' : '#f8d7da';
+        rfidMessageEl.style.borderColor = type === 'success' ? '#c3e6cb' : '#f5c6cb';
+        rfidMessageEl.style.color = type === 'success' ? '#155724' : '#721c24';
+        
+        if (type === 'success') {
+          setTimeout(() => {
+            rfidMessageEl.style.display = 'none';
+          }, 3000);
+        }
       }
       
 

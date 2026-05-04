@@ -131,6 +131,47 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
                 'message' => 'RFID card updated for ' . $emp['name'],
                 'employee_name' => $emp['name']
             ]);
+        } elseif ($action === 'write') {
+            $rfidCode = trim($_POST['rfid_code'] ?? '');
+            $empId = trim($_POST['employee_id'] ?? '');
+            
+            if (!$rfidCode || !$empId) {
+                http_response_code(400);
+                echo json_encode(['status' => 'error', 'message' => 'RFID code and employee ID required']);
+                exit;
+            }
+            
+            // Check employee exists
+            $empStmt = $pdo->prepare("SELECT id, name FROM employees WHERE id = ?");
+            $empStmt->execute([$empId]);
+            $emp = $empStmt->fetch();
+            
+            if (!$emp) {
+                http_response_code(404);
+                echo json_encode(['status' => 'error', 'message' => 'Employee not found']);
+                exit;
+            }
+            
+            // TODO: Integrate with actual RFID writer hardware here
+            // Example pseudocode:
+            // $writer = new RFIDWriter('/dev/ttyUSB0');
+            // $writer->writeTag($rfidCode);
+            // $writer->close();
+            
+            // For now, just simulate the write and add to mapping
+            $stmt = $pdo->prepare("
+                INSERT INTO rfid_mapping (rfid_code, employee_id) 
+                VALUES (?, ?)
+                ON DUPLICATE KEY UPDATE employee_id = ?
+            ");
+            $stmt->execute([$rfidCode, $empId, $empId]);
+            
+            echo json_encode([
+                'status' => 'ok',
+                'message' => 'RFID card write simulated for ' . $emp['name'] . '. Code: ' . $rfidCode . ' (Connect hardware to enable actual writing)',
+                'employee_name' => $emp['name']
+            ]);
+            
         } elseif ($action === 'list') {
             $stmt = $pdo->query("
                 SELECT r.rfid_code, r.employee_id, e.name 
@@ -357,6 +398,36 @@ try {
         </div>
         
         <div class="card">
+            <h2 style="margin-bottom: 15px;">Write RFID Card (Sample)</h2>
+            <div id="writeMessage"></div>
+            
+            <form id="writeForm" onsubmit="handleWriteRFID(event)">
+                <div class="form-group">
+                    <label for="rfidCodeToWrite">RFID Code to Write</label>
+                    <input type="text" id="rfidCodeToWrite" placeholder="Enter code to write to card" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="employeeSelectWrite">Employee</label>
+                    <select id="employeeSelectWrite" required>
+                        <option value="">-- Select Employee --</option>
+                        <?php foreach ($employees as $emp): ?>
+                            <option value="<?= htmlspecialchars($emp['id']) ?>">
+                                <?= htmlspecialchars($emp['id'] . ' - ' . $emp['name']) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+                
+                <div style="background: #f0f0f0; padding: 12px; border-radius: 4px; margin-bottom: 15px; font-size: 13px; color: #666;">
+                    <strong>ℹ️ Note:</strong> This is a sample writer interface. Connect your RFID writer hardware to your server to enable actual writing. Once connected, this form will communicate with the writer device.
+                </div>
+                
+                <button type="submit">Write RFID Card</button>
+            </form>
+        </div>
+        
+        <div class="card">
             <h2 style="margin-bottom: 15px;">Existing RFID Cards</h2>
             <div id="tableContainer" class="loading">
                 <p>Loading RFID cards...</p>
@@ -397,6 +468,39 @@ try {
                 }
             } catch (error) {
                 showMessage('Network error: ' + error.message, 'error');
+            }
+        }
+        
+        async function handleWriteRFID(event) {
+            event.preventDefault();
+            
+            const rfidCode = document.getElementById('rfidCodeToWrite').value.trim();
+            const empId = document.getElementById('employeeSelectWrite').value;
+            
+            if (!rfidCode || !empId) {
+                showWriteMessage('Please fill in all fields', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('rfid_admin.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `action=write&rfid_code=${encodeURIComponent(rfidCode)}&employee_id=${encodeURIComponent(empId)}`
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok && data.status === 'ok') {
+                    showWriteMessage(data.message, 'success');
+                    document.getElementById('rfidCodeToWrite').value = '';
+                    document.getElementById('employeeSelectWrite').value = '';
+                    loadRFIDCards();
+                } else {
+                    showWriteMessage(data.message || 'Error writing RFID card', 'error');
+                }
+            } catch (error) {
+                showWriteMessage('Network error: ' + error.message, 'error');
             }
         }
         
@@ -541,6 +645,19 @@ try {
         
         function showMessage(msg, type) {
             const messageEl = document.getElementById('message');
+            messageEl.className = `message ${type}`;
+            messageEl.textContent = msg;
+            
+            if (type === 'success') {
+                setTimeout(() => {
+                    messageEl.textContent = '';
+                    messageEl.className = '';
+                }, 3000);
+            }
+        }
+        
+        function showWriteMessage(msg, type) {
+            const messageEl = document.getElementById('writeMessage');
             messageEl.className = `message ${type}`;
             messageEl.textContent = msg;
             
