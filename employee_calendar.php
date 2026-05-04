@@ -50,8 +50,8 @@ $endDate = $firstDay->format('Y-m-t');
 
 // rules (same as admin)
 $shiftStart = '08:30:00';
-$graceMinutes = 15;
-$minWorkSeconds = 4 * 3600; // half-day threshold
+$graceMinutes = 5;
+$minWorkSeconds = 6 * 3600; // 6-hour under time threshold
 
 // build photo path (fallback to default)
 $photoPath = 'uploads/default.png';
@@ -116,64 +116,67 @@ function compute_day_status($date, $attendance, $leaveNote, $shiftStart, $graceM
 
     $firstIn = $attendance['first_in'] ?? null;
     $lastOut = $attendance['last_out'] ?? null;
-
-    // if either missing, mark half-day (incomplete)
-    if (!$firstIn || !$lastOut) {
-        $half = false;
-        $early = false;
-        if ($firstIn) {
-            $half = (int)date('H', strtotime($firstIn)) >= 12;
-        }
-        if ($lastOut) {
-            $early = strtotime($lastOut) < strtotime(date('Y-m-d', strtotime($lastOut)) . ' 17:30:00');
-        }
-        $parts = [];
-        if ($half) $parts[] = 'Half day';
-        if ($early) $parts[] = 'Early out';
-        $label = !empty($parts) ? implode(' | ', $parts) : 'Half-day';
-        $cls = 'half';
-        return ['label'=>$label,'class'=>$cls,'detail'=>'In/Out incomplete'];
-    }
-
-    // compute worked seconds
-    $firstTs = strtotime($firstIn);
-    $lastTs = strtotime($lastOut);
-    $worked = max(0, $lastTs - $firstTs);
-
-    // half-day if first in at or after 12:00
-    $half_day = (int)date('H', $firstTs) >= 12;
-
-    // early out if last out before 17:30
-    $early_out = $lastTs < strtotime(date('Y-m-d', $lastTs) . ' 17:30:00');
-
-    // compose label
-    $labels = [];
-    if ($half_day) $labels[] = 'Half day';
-    if ($early_out) $labels[] = 'Early out';
-
-    if (!empty($labels)) {
-        $label = implode(' | ', $labels);
-        $cls = $half_day ? 'half' : 'early';
-        return ['label'=>$label,'class'=>$cls,'detail'=>sprintf('In %s — Out %s', date('H:i', $firstTs), date('H:i', $lastTs))];
-    }
-
-    // fallback to on time / late logic
+    $firstTs = $firstIn ? strtotime($firstIn) : null;
+    $lastTs = $lastOut ? strtotime($lastOut) : null;
     $shiftDT = strtotime($date . ' ' . $shiftStart);
     $lateThreshold = $shiftDT + ($graceMinutes * 60);
-    if ($firstTs > $lateThreshold) {
-        $label = 'Late'; $cls = 'late';
-    } else {
-        $label = 'On time'; $cls = 'on';
+    $absentThreshold = strtotime($date . ' 13:00:00');
+
+    if (!$firstTs || !$lastTs) {
+        if ($firstTs && $firstTs >= $absentThreshold) {
+            return ['label'=>'Absent','class'=>'absent','detail'=>'Arrived after 1:00 PM'];
+        }
+        return ['label'=>'Half-day','class'=>'half','detail'=>'Incomplete attendance'];
     }
 
-    if ($worked < $minWorkSeconds) {
-        return ['label'=>'Half-day','class'=>'half','detail'=>sprintf('Worked %s', gmdate('H:i', $worked))];
+    if ($firstTs >= $absentThreshold) {
+        return ['label'=>'Absent','class'=>'absent','detail'=>'Arrived after 1:00 PM'];
     }
-    return ['label'=>$label,'class'=>$cls,'detail'=>sprintf('In %s — Out %s', date('H:i', $firstTs), date('H:i', $lastTs))];
+
+    $worked = max(0, $lastTs - $firstTs);
+    $isLate = $firstTs > $lateThreshold;
+
+    if ($worked < $minWorkSeconds) {
+        $label = $isLate ? 'Under time | Late' : 'Under time';
+        return ['label'=>$label,'class'=>'half','detail'=>sprintf('Worked %s', gmdate('H:i', $worked))];
+    }
+
+    if ($isLate) {
+        return ['label'=>'Late','class'=>'late','detail'=>sprintf('In %s — Out %s', date('H:i', $firstTs), date('H:i', $lastTs))];
+    }
+
+    return ['label'=>'On time','class'=>'on','detail'=>sprintf('In %s — Out %s', date('H:i', $firstTs), date('H:i', $lastTs))];
 }
 
 // small sanitizer for HTML
 function h($s) { return htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8'); }
+
+// Compute summary counts for the visible month
+$summaryCounts = [
+    'on' => 0,
+    'late' => 0,
+    'half' => 0,
+    'leave' => 0,
+    'absent' => 0,
+];
+for ($d = clone $firstDay; $d->format('Y-m') === $ym; $d->modify('+1 day')) {
+    $day = $d->format('Y-m-d');
+    $dow = (int)$d->format('N');
+    $leaveNote = $leavesByDate[$day] ?? null;
+    $attendance = $attendanceByDate[$day] ?? null;
+    $status = compute_day_status($day, $attendance, $leaveNote, $shiftStart, $graceMinutes, $minWorkSeconds);
+    if ($status === null) {
+        if ($dow < 6) {
+            $summaryCounts['absent']++;
+        }
+        continue;
+    }
+    $key = $status['class'] ?? 'on';
+    if (!isset($summaryCounts[$key])) {
+        $summaryCounts[$key] = 0;
+    }
+    $summaryCounts[$key]++;
+}
 
 // prev/next month strings
 $prev = (clone $firstDay)->modify('-1 month')->format('Y-m');
@@ -742,6 +745,31 @@ $next = (clone $firstDay)->modify('+1 month')->format('Y-m');
       💡 Click any day with attendance records to view detailed information including check-in/out times and photos.
     </div>
 
+    <div class="card" style="margin-bottom:18px; padding:16px;">
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;">
+        <div style="background:#f8fafc;border-radius:12px;padding:14px;">
+          <div class="small muted">On time</div>
+          <div class="value" style="font-size:22px;font-weight:700;color:#059669;"><?php echo (int)$summaryCounts['on']; ?></div>
+        </div>
+        <div style="background:rgba(239,68,68,0.08);border-radius:12px;padding:14px;">
+          <div class="small muted">Late</div>
+          <div class="value" style="font-size:22px;font-weight:700;color:#dc2626;"><?php echo (int)$summaryCounts['late']; ?></div>
+        </div>
+        <div style="background:rgba(249,115,22,0.08);border-radius:12px;padding:14px;">
+          <div class="small muted">Half-day</div>
+          <div class="value" style="font-size:22px;font-weight:700;color:#d97706;"><?php echo (int)$summaryCounts['half']; ?></div>
+        </div>
+        <div style="background:rgba(99,102,241,0.08);border-radius:12px;padding:14px;">
+          <div class="small muted">Leave</div>
+          <div class="value" style="font-size:22px;font-weight:700;color:#4f46e5;"><?php echo (int)$summaryCounts['leave']; ?></div>
+        </div>
+        <div style="background:rgba(239,68,68,0.08);border-radius:12px;padding:14px;">
+          <div class="small muted">Absent</div>
+          <div class="value" style="font-size:22px;font-weight:700;color:#dc2626;"><?php echo (int)$summaryCounts['absent']; ?></div>
+        </div>
+      </div>
+    </div>
+
     <!-- Calendar -->
     <div class="card" style="padding: 0; overflow: hidden;">
       <table class="cal-grid" role="grid" aria-label="Attendance calendar">
@@ -912,7 +940,6 @@ $next = (clone $firstDay)->modify('+1 month')->format('Y-m');
 
       // Status badge
       const statusEl = document.getElementById('modalStatus');
-      const hasBoth = day.first_in && day.last_out;
       let statusClass = 'half';
       let statusText = 'Incomplete';
 
@@ -921,19 +948,21 @@ $next = (clone $firstDay)->modify('+1 month')->format('Y-m');
         const lastTs = new Date(day.last_out).getTime();
         const worked = Math.max(0, lastTs - firstTs);
         const shiftStart = new Date(dateStr + 'T08:30:00').getTime();
-        const lateThreshold = shiftStart + (15 * 60 * 1000);
+        const lateThreshold = shiftStart + (5 * 60 * 1000);
+        const absentAfter = new Date(dateStr + 'T13:00:00').getTime();
 
-        if (firstTs > lateThreshold) {
+        if (firstTs >= absentAfter) {
+          statusClass = 'absent';
+          statusText = 'Absent';
+        } else if (worked < (6 * 3600 * 1000)) {
+          statusClass = 'half';
+          statusText = 'Under time';
+        } else if (firstTs > lateThreshold) {
           statusClass = 'late';
           statusText = 'Late';
         } else {
           statusClass = 'on';
           statusText = 'On Time';
-        }
-
-        if (worked < (4 * 3600 * 1000)) {
-          statusClass = 'half';
-          statusText = 'Half-day';
         }
       }
 

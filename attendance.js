@@ -163,11 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     try {
       const constraints = {
-        video: {
-          facingMode: 'user',
-          width: { ideal: 1024 },
-          height: { ideal: 1024 }
-        },
+        video: true, // Simplified for better compatibility
         audio: false
       };
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
@@ -184,6 +180,23 @@ document.addEventListener('DOMContentLoaded', () => {
       return stream;
     } catch (err) {
       log('Camera start failed', err);
+      // Show error message
+      if (formMsg) {
+        let errorMsg = 'Camera access failed.';
+        if (err.name === 'NotAllowedError') {
+          errorMsg = 'Camera permission denied. Please allow camera access in your browser.';
+        } else if (err.name === 'NotFoundError') {
+          errorMsg = 'No camera found. Please connect a camera.';
+        } else if (err.name === 'NotReadableError') {
+          errorMsg = 'Camera is already in use by another application.';
+        } else if (err.name === 'OverconstrainedError') {
+          errorMsg = 'Camera constraints not supported.';
+        } else if (err.name === 'SecurityError') {
+          errorMsg = 'Camera access blocked. Try accessing this page with HTTPS (https://localhost/timeclock/) or allow camera access for this site.';
+        }
+        formMsg.textContent = errorMsg;
+        formMsg.style.color = 'red';
+      }
       return null;
     }
   }
@@ -533,10 +546,121 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
+  // ============ RFID HANDLER ============
+  const rfidInput = document.getElementById('rfidInput');
+  let rfidBuffer = '';
+  let rfidTimeout = null;
+  
+  // Keep RFID input focused to capture scanner data
+  function focusRFID() {
+    if (rfidInput && document.activeElement !== empIdInput) {
+      try { rfidInput.focus(); } catch (e) {}
+    }
+  }
+
+  if (rfidInput) {
+    // Listen for RFID card data
+    rfidInput.addEventListener('input', (e) => {
+      const data = rfidInput.value.trim();
+      
+      if (data.length > 0) {
+        rfidBuffer = data;
+        
+        // Clear timeout for next scan
+        if (rfidTimeout) clearTimeout(rfidTimeout);
+        
+        // Process RFID data after a short delay (scanner sends all data quickly, then stops)
+        rfidTimeout = setTimeout(() => {
+          processRFIDData(rfidBuffer);
+          rfidBuffer = '';
+          rfidInput.value = '';
+          focusRFID();
+        }, 100);
+      }
+    });
+
+    // Process RFID keydown to detect Enter (end of scan)
+    rfidInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (rfidTimeout) clearTimeout(rfidTimeout);
+        processRFIDData(rfidBuffer || rfidInput.value);
+        rfidBuffer = '';
+        rfidInput.value = '';
+        focusRFID();
+      }
+    });
+
+    // Keep RFID field focused
+    document.addEventListener('click', focusRFID);
+    document.addEventListener('touchend', focusRFID);
+  }
+
+  function processRFIDData(rfidCode) {
+    if (!rfidCode || rfidCode.length === 0) return;
+
+    // Show processing message
+    if (formMsg) formMsg.textContent = 'Processing RFID...';
+
+    // Look up employee ID from RFID code via server
+    fetch('rfid_lookup.php', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: 'rfid_code=' + encodeURIComponent(rfidCode),
+      credentials: 'same-origin'
+    })
+    .then(res => res.json())
+    .then(data => {
+      if (data.status === 'ok' && data.employee_id) {
+        const employeeId = String(data.employee_id);
+        
+        log(`RFID scanned: ${rfidCode} -> Employee ID: ${employeeId} (${data.source})`);
+
+        // Auto-populate employee ID
+        if (empIdInput) {
+          empIdInput.value = employeeId;
+          empIdInput.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+
+        // Clear message
+        if (formMsg) formMsg.textContent = '';
+
+        // Auto-select "Time In" if no action selected yet
+        if (!actionInput || actionInput.value === '') {
+          const inBtn = segBtns.find(btn => btn.getAttribute('data-value') === 'in');
+          if (inBtn) {
+            inBtn.click();
+          }
+        }
+
+        // Auto-submit form after a brief delay to show the action was selected
+        setTimeout(() => {
+          if (validateState()) {
+            if (form) form.dispatchEvent(new Event('submit'));
+          }
+        }, 200);
+      } else {
+        if (formMsg) formMsg.textContent = data.message || 'RFID code not recognized';
+        log(`RFID lookup failed: ${rfidCode}`);
+      }
+    })
+    .catch(err => {
+      console.error('RFID lookup error', err);
+      if (formMsg) formMsg.textContent = 'RFID lookup error. Try manual entry.';
+    })
+    .finally(() => {
+      focusRFID();
+    });
+  }
+
+  // Focus RFID input on page load
+  focusRFID();
+
   // ============ INITIALIZATION ============
   // Initialize time sync first, then ready the form
   (async () => {
     await initializeServerTimeSync();
     updateGoState();
+    focusRFID(); // Ensure RFID input stays focused
   })();
 });

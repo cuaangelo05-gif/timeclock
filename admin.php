@@ -17,6 +17,20 @@ $post = function($k, $d = '') {
     return isset($_POST[$k]) ? trim((string)$_POST[$k]) : $d;
 };
 
+$ensureAdminColumn = function($col, $type = 'VARCHAR(255) NULL') use ($pdo) {
+    try {
+        $pdo->query("SELECT `$col` FROM admins LIMIT 1");
+        return true;
+    } catch (Exception $e) {
+        try {
+            $pdo->exec("ALTER TABLE admins ADD COLUMN `$col` $type");
+            return true;
+        } catch (Exception $ex) {
+            return false;
+        }
+    }
+};
+
 // ============ SECTION PERSISTENCE ============
 // Get target section from POST (or default to current)
 $targetSection = $_POST['section'] ?? null;
@@ -65,10 +79,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             $feedback = "Department name required to delete.";
         } else {
             try {
-                // don't allow deletion if employees assigned (check department, branch, division for compatibility)
-                $c = $pdo->prepare('SELECT COUNT(*) AS c FROM employees WHERE department = ? OR branch = ? OR division = ?');
-                $c->execute([$delName, $delName, $delName]);
-                $count = (int)($c->fetchColumn() ?? 0);
+                // Check which columns exist in employees table
+                $empCols = ['department', 'branch', 'division'];
+                $existingCols = [];
+                foreach ($empCols as $col) {
+                    try {
+                        $pdo->query("SELECT `$col` FROM employees LIMIT 1");
+                        $existingCols[] = $col;
+                    } catch (Exception $e) {
+                        // Column doesn't exist, skip it
+                    }
+                }
+                
+                // Build query to check if employees are assigned
+                $conditions = [];
+                $params = [];
+                foreach ($existingCols as $col) {
+                    $conditions[] = "$col = ?";
+                    $params[] = $delName;
+                }
+                
+                if (!empty($conditions)) {
+                    $sql = 'SELECT COUNT(*) AS c FROM employees WHERE ' . implode(' OR ', $conditions);
+                    $c = $pdo->prepare($sql);
+                    $c->execute($params);
+                    $count = (int)($c->fetchColumn() ?? 0);
+                } else {
+                    $count = 0; // No columns to check
+                }
+                
                 if ($count > 0) {
                     $feedback = "Cannot delete department '$delName' because $count employee(s) are assigned. Reassign or remove them first.";
                 } else {
@@ -87,6 +126,108 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action'])) {
             }
         }
     }
+
+    if ($act === 'add_admin_user') {
+        $username = strtolower(trim($_POST['username'] ?? ''));
+        $password = $_POST['password'] ?? '';
+        $full_name = trim($_POST['full_name'] ?? '');
+        $position = trim($_POST['position'] ?? '');
+        $photoFilename = null;
+        $adminPhotoDir = __DIR__ . '/uploads/admins';
+        if (!is_dir($adminPhotoDir)) {
+            mkdir($adminPhotoDir, 0755, true);
+        }
+
+        if ($username === '' || $password === '' || $full_name === '') {
+            $feedback = "Username, password, and full name are required.";
+        } elseif (strlen($password) < 6) {
+            $feedback = "Password must be at least 6 characters.";
+        } elseif (!preg_match('/^[A-Za-z0-9_\-\.]{3,100}$/', $username)) {
+            $feedback = "Username may contain letters, numbers, underscore, dash, or dot (3-100 chars).";
+        } else {
+            try {
+                $pdo->exec("CREATE TABLE IF NOT EXISTS admins (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    username VARCHAR(100) NOT NULL UNIQUE,
+                    password_hash VARCHAR(255) NOT NULL,
+                    fullname VARCHAR(255),
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+                $ensureAdminColumn('position', 'VARCHAR(100) NULL');
+                $ensureAdminColumn('password_plain', 'VARCHAR(255) NULL');
+                $ensureAdminColumn('photo', 'VARCHAR(255) NULL');
+
+                $stmt = $pdo->prepare('SELECT id FROM admins WHERE username = ? LIMIT 1');
+                $stmt->execute([$username]);
+                if ($stmt->fetch()) {
+                    $feedback = "That admin username is already registered.";
+                } else {
+                    if (!empty($_FILES['photo']['name'])) {
+                        $f = $_FILES['photo'];
+                        $allowedTypes = ['image/jpeg','image/png','image/gif','image/webp'];
+                        if ($f['error'] !== UPLOAD_ERR_OK) {
+                            $feedback = "Photo upload error (code {$f['error']}).";
+                        } elseif ($f['size'] > 2 * 1024 * 1024) {
+                            $feedback = "Photo too large (max 2MB).";
+                        } else {
+                            $detected = @getimagesize($f['tmp_name']);
+                            $mime = $detected['mime'] ?? '';
+                            if (!in_array($mime, $allowedTypes, true)) {
+                                $feedback = "Unsupported photo type. Use JPG, PNG, GIF, or WEBP.";
+                            } else {
+                                $ext = image_type_to_extension($detected[2], false);
+                                $safe = preg_replace('/[^A-Za-z0-9_\-]/', '_', $username);
+                                $photoFilename = $safe . '_' . time() . '.' . $ext;
+                                $dest = $adminPhotoDir . '/' . $photoFilename;
+                                if (!move_uploaded_file($f['tmp_name'], $dest)) {
+                                    $feedback = "Failed to save admin photo.";
+                                    $photoFilename = null;
+                                }
+                            }
+                        }
+                    }
+
+                    if ($feedback === '') {
+                        $hashed = password_hash($password, PASSWORD_DEFAULT);
+                        $ins = $pdo->prepare('INSERT INTO admins (username, password_hash, password_plain, fullname, position, photo) VALUES (?, ?, ?, ?, ?, ?)');
+                        $ins->execute([$username, $hashed, $password, $full_name, $position, $photoFilename]);
+                        $feedback = "Sub admin created: " . htmlspecialchars($full_name) . ".";
+                        if (!$targetSection) $targetSection = 'settings';
+                    }
+                }
+            } catch (Exception $e) {
+                $feedback = "Could not create sub admin: " . $e->getMessage();
+            }
+        }
+    }
+
+    if ($act === 'delete_admin_user') {
+        $adminId = isset($_POST['admin_id']) ? (int)$_POST['admin_id'] : 0;
+        if ($adminId <= 0) {
+            $feedback = "Invalid admin selected for deletion.";
+        } else {
+            try {
+                $stmt = $pdo->prepare('SELECT username, photo FROM admins WHERE id = ? LIMIT 1');
+                $stmt->execute([$adminId]);
+                $row = $stmt->fetch(PDO::FETCH_ASSOC);
+                if (!$row) {
+                    $feedback = "Admin user not found.";
+                } elseif (!empty($_SESSION['admin_user']) && $row['username'] === $_SESSION['admin_user']) {
+                    $feedback = "You cannot delete the account you are currently signed in with.";
+                } else {
+                    $del = $pdo->prepare('DELETE FROM admins WHERE id = ?');
+                    $del->execute([$adminId]);
+                    if ($row['photo']) {
+                        @unlink(__DIR__ . '/uploads/admins/' . $row['photo']);
+                    }
+                    $feedback = "Admin deleted.";
+                    if (!$targetSection) $targetSection = 'settings';
+                }
+            } catch (Exception $e) {
+                $feedback = "Could not delete admin: " . $e->getMessage();
+            }
+        }
+    }
 }
 
 // --------------------
@@ -98,7 +239,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
   if (!$targetSection) $targetSection = 'employees'; 
     // Required fields (server-side)
     $id_code = $post('id_code');
-    $name = $post('name');
+    $last_name = $post('last_name');
+    $first_name = $post('first_name');
+    $middle_initial = $post('middle_initial');
     $department = $post('department', 'General');
     $position = $post('position');
     $employment_type = $post('employment_type', 'Full-time');
@@ -107,7 +250,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     $date_hired = $post('date_hired', date('Y-m-d'));
 
     // Basic server-side validation
-    if ($id_code === '' || $name === '' || $department === '' || $position === '' || $employment_type === '' || $shift === '' || $attendance_status === '' || $date_hired === '') {
+    if ($id_code === '' || $last_name === '' || $first_name === '' || $department === '' || $position === '' || $employment_type === '' || $shift === '' || $attendance_status === '' || $date_hired === '') {
         $feedback = "All fields are required. Please fill in all fields.";
     } elseif (!preg_match('/^[A-Za-z0-9\-_]{2,64}$/', $id_code)) {
         $feedback = "Employee ID Code may contain letters, numbers, - or _ (2-64 chars).";
@@ -176,8 +319,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                             }
                         }
 
-                        $base_salary = !empty($_POST['base_salary']) ? (float)$_POST['base_salary'] : null;
-                        $overtime_rate = !empty($_POST['overtime_rate']) ? (float)$_POST['overtime_rate'] : null;
                         $sss_number = trim($_POST['sss_number'] ?? '');
                         $philhealth_number = trim($_POST['philhealth_number'] ?? '');
                         $tin_number = trim($_POST['tin_number'] ?? '');
@@ -194,7 +335,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                     $pdo->exec("ALTER TABLE employees ADD COLUMN `$col` $type");
                                     return true;
                                 } catch (Exception $ex) {
-                                    // ignore
                                     return false;
                                 }
                             }
@@ -206,8 +346,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                         $ensureCol('shift', "VARCHAR(100) NULL");
                         $ensureCol('attendance_status', "VARCHAR(50) NULL");
                         $ensureCol('date_hired', "DATE NULL");
-                        $ensureCol('base_salary', "DECIMAL(10,2) NULL");
-                        $ensureCol('overtime_rate', "DECIMAL(10,2) NULL");
                         $ensureCol('standard_hours_month', "INT NULL DEFAULT 160");
                         $ensureCol('sss_number', "VARCHAR(64) NULL");
                         $ensureCol('philhealth_number', "VARCHAR(64) NULL");
@@ -217,23 +355,20 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
                         // Insert employee; attempt a multi-column insert
                         try {
-                            $ins = $pdo->prepare('INSERT INTO employees (id_code, name, position, employment_type, shift, division, branch, department, last_status, attendance_status, date_hired, photo, base_salary, overtime_rate, sss_number, philhealth_number, tin_number, nbi_number, pagibig_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
-                            // Keep old semantics: set last_status to "out" (system attendance state), attendance_status used for system-level active/inactive
+                            $ins = $pdo->prepare('INSERT INTO employees (id_code, name, position, employment_type, shift, division, branch, department, last_status, attendance_status, date_hired, photo, sss_number, philhealth_number, tin_number, nbi_number, pagibig_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
                             $ins->execute([
                                 $id_code,
                                 $name,
                                 $position,
                                 $employment_type,
                                 $shift,
-                                $department, // division
-                                $department, // branch
-                                $department, // department
+                                $department,
+                                $department,
+                                $department,
                                 'out',
                                 $attendance_status,
                                 $date_hired,
                                 $photoFilename,
-                                $base_salary,
-                                $overtime_rate,
                                 $sss_number,
                                 $philhealth_number,
                                 $tin_number,
@@ -256,8 +391,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
                                     if ($department !== '') { $updates[] = 'department = ?'; $params[] = $department; }
                                     if ($attendance_status !== '') { $updates[] = 'attendance_status = ?'; $params[] = $attendance_status; }
                                     if ($date_hired !== '') { $updates[] = 'date_hired = ?'; $params[] = $date_hired; }
-                                    if ($base_salary !== null) { $updates[] = 'base_salary = ?'; $params[] = $base_salary; }
-                                    if ($overtime_rate !== null) { $updates[] = 'overtime_rate = ?'; $params[] = $overtime_rate; }
                                     if ($sss_number !== '') { $updates[] = 'sss_number = ?'; $params[] = $sss_number; }
                                     if ($philhealth_number !== '') { $updates[] = 'philhealth_number = ?'; $params[] = $philhealth_number; }
                                     if ($tin_number !== '') { $updates[] = 'tin_number = ?'; $params[] = $tin_number; }
@@ -390,6 +523,26 @@ $list = $pdo->query($sql)->fetchAll(PDO::FETCH_ASSOC);
 } catch (Exception $e) {
     $list = [];
     $feedback = "Could not load employees: " . $e->getMessage();
+}
+
+// Admin list and settings data
+try {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS admins (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        username VARCHAR(100) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        fullname VARCHAR(255),
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    $ensureAdminColumn('position', 'VARCHAR(100) NULL');
+    $ensureAdminColumn('password_plain', 'VARCHAR(255) NULL');
+    $ensureAdminColumn('photo', 'VARCHAR(255) NULL');
+
+    $adminStmt = $pdo->query('SELECT id, username, fullname, position, photo, password_plain, created_at FROM admins ORDER BY id ASC');
+    $adminList = $adminStmt->fetchAll(PDO::FETCH_ASSOC);
+} catch (Exception $e) {
+    $adminList = [];
+    $feedback = $feedback ?: "Could not load admin settings: " . $e->getMessage();
 }
 
 // Today's attendance summary (as before)...
@@ -733,7 +886,7 @@ if (isset($_GET['ajax'])) {
                 fputcsv($out, ['Employee ID', 'Full name', 'Department', 'Status', 'Time In', 'Time In Photo', 'Time Out', 'Time Out Photo']);
 
                 // local status helper
-                $compute_status_server = function($firstIn, $lastOut, $shiftStart = '08:30:00', $graceMinutes = 15, $minWorkSeconds = 14400) {
+                $compute_status_server = function($firstIn, $lastOut, $shiftStart = '08:30:00', $graceMinutes = 5, $minWorkSeconds = 21600) {
                     $parse = function($dt) {
                         if (!$dt) return null;
                         $m = preg_split('/[- :T]/', $dt);
@@ -746,10 +899,11 @@ if (isset($_GET['ajax'])) {
                     list($h,$m,$s) = explode(':', $shiftStart);
                     $shiftTs = gmmktime((int)$h,(int)$m,(int)$s, (int)substr($date,5,2), (int)substr($date,8,2), (int)substr($date,0,4));
                     $lateThreshold = $shiftTs + ($graceMinutes * 60);
+                    $absentThreshold = gmmktime(13, 0, 0, (int)substr($date,5,2), (int)substr($date,8,2), (int)substr($date,0,4));
 
                     if (!$firstTs && !$lastTs) return 'Absent';
+                    if ($firstTs && $firstTs >= $absentThreshold) return 'Absent';
                     if (!$firstTs || !$lastTs) {
-                        if ($firstTs && !$lastTs) return ($firstTs > $lateThreshold) ? 'Late' : 'On Time';
                         return 'Half-day';
                     }
                     $worked = max(0, $lastTs - $firstTs);
@@ -757,7 +911,7 @@ if (isset($_GET['ajax'])) {
                         if ($worked < $minWorkSeconds) return 'Half-day | Late';
                         return 'Late';
                     } else {
-                        if ($worked < $minWorkSeconds) return 'Early Out / Half-day';
+                        if ($worked < $minWorkSeconds) return 'Half-day';
                         return 'Regular';
                     }
                 };
@@ -873,6 +1027,16 @@ if (isset($_GET['ajax'])) {
 
     /* Active/highlight */
     .nav a.active{background:rgba(255,255,255,0.08);box-shadow:inset 3px 0 0 var(--accent);font-weight:600}
+    button.metric-card { display:block; text-align:left; border:none; background:inherit; width:100%; cursor:pointer; padding:14px; font:inherit; }
+    button.metric-card:hover, button.metric-card:focus { outline:none; box-shadow:0 10px 25px rgba(37,99,235,0.08); }
+    .badge-status { display:inline-flex; align-items:center; justify-content:center; padding:4px 10px; border-radius:999px; font-size:12px; font-weight:600; }
+    .badge-status.on { background: rgba(16,185,129,0.12); color:#059669; }
+    .badge-status.late { background: rgba(239,68,68,0.12); color:#dc2626; }
+    .badge-status.half { background: rgba(249,115,22,0.12); color:#d97706; }
+    .badge-status.absent { background: rgba(239,68,68,0.12); color:#dc2626; }
+    .badge-status.leave { background: rgba(99,102,241,0.12); color:#4f46e5; }
+    .badge-status.neutral { background: rgba(148,163,184,0.12); color:#475569; }
+    .employee-table tbody tr[data-employee-id] { cursor:pointer; }
     .nav a:hover{background:rgba(255,255,255,0.06)}
 
     .sidebar .section-title{font-size:12px;color:rgba(255,255,255,0.65);margin-top:10px}
@@ -939,17 +1103,14 @@ if (isset($_GET['ajax'])) {
     .add-form-grid {
       display:grid;
       grid-template-columns: repeat(12, 1fr);
-      gap:10px;
+      gap:12px;
       align-items:start;
       width:100%;
       box-sizing:border-box;
     }
-    /* Identity group occupies 5 cols on desktop */
-    .group-identity { grid-column: span 5; min-width:0; }
-    /* Work info occupies 4 cols */
+    .group-identity { grid-column: span 4; min-width:0; }
     .group-work { grid-column: span 4; min-width:0; }
-    /* Photo & actions occupies 3 cols */
-    .group-photo { grid-column: span 3; min-width:0; display:flex;flex-direction:column;gap:8px;align-items:flex-start; }
+    .group-photo { grid-column: span 4; min-width:0; display:flex;flex-direction:column;gap:8px;align-items:flex-start; }
 
     .field { display:flex;flex-direction:column; gap:6px; }
     label.field-label { font-size:13px;color:var(--muted); }
@@ -959,17 +1120,11 @@ if (isset($_GET['ajax'])) {
     .photo-preview { width:100%;height:120px;border-radius:8px;background:#f8fafc;border:1px dashed #e6eef8;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;overflow:hidden;object-fit:cover; }
 
     .form-actions { display:flex;gap:10px;align-items:center;margin-top:6px; }
-    .btn.primary{background:var(--accent);color:#fff;padding:10px 14px;border-radius:8px}
-    .btn.ghost{background:transparent;border:1px solid var(--surface-2);color:var(--muted);padding:8px 12px;border-radius:8px}
+    .btn.primary{background:var(--accent);color:#fff;padding:10px 14px;border-radius:8px;font-size:14px;}
+    .btn.ghost{background:transparent;border:1px solid var(--surface-2);color:var(--muted);padding:8px 12px;border-radius:8px;font-size:14px;}
 
     .validation-error { color: var(--danger); font-size:13px; margin-top:6px; display:none; }
 
-    .payroll-summary { display:flex; flex-wrap:wrap; gap:12px; margin-bottom:16px; }
-    .payroll-summary .metric-card { flex:1; min-width:180px; background:#f8fafc; border:1px solid rgba(226,232,240,0.8); border-radius:12px; padding:12px 14px; }
-    .payroll-summary .metric-card .metric-label { display:block; font-size:12px; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.04em; }
-    .payroll-summary .metric-card .metric-value { font-size:18px; font-weight:700; color:#111827; }
-    .payroll-employee-link { color: var(--accent); text-decoration: none; font-weight:700; }
-    .payroll-employee-link:hover { text-decoration: underline; }
 
     .data-table { width:100%; border-collapse:collapse; font-size:14px; margin-top:12px; }
     .data-table th, .data-table td { padding:12px 14px; text-align:left; border-bottom:1px solid #eff2f7; }
@@ -1026,7 +1181,6 @@ if (isset($_GET['ajax'])) {
         <a href="#attendance" >Attendance</a>
         <a href="#departments" data-section="departments">Departments <span class="count"><?php echo count($departments); ?></span></a>
         <a href="#reports" data-section="reports">Reports</a>
-        <a href="#payroll" data-section="payroll">Payroll</a>
         <a href="#settings" data-section="settings">Settings</a>
       </nav>
 
@@ -1037,7 +1191,7 @@ if (isset($_GET['ajax'])) {
       </div>
 
       <div class="footer">
-        Signed in as <strong><?php echo htmlspecialchars($_SESSION['admin_username'] ?? 'admin'); ?></strong>
+        Signed in as <strong><?php echo htmlspecialchars($_SESSION['admin_user'] ?? 'admin'); ?></strong>
       </div>
     </aside>
 
@@ -1078,39 +1232,39 @@ if (isset($_GET['ajax'])) {
             <div class="small muted">All registered staff</div>
           </div>
 
-          <div class="card kpi">
+          <button type="button" class="card kpi metric-card" data-target-section="employees" data-status-filter="in">
             <div class="label">Currently IN</div>
             <div class="value" style="color:var(--success)"><?php echo $inCount; ?></div>
             <div class="small muted">Checked in now</div>
-          </div>
+          </button>
 
-          <div class="card kpi">
+          <button type="button" class="card kpi metric-card" data-target-section="employees" data-status-filter="out">
             <div class="label">Currently OUT</div>
             <div class="value"><?php echo $outCount; ?></div>
             <div class="small muted">Checked out now</div>
-          </div>
+          </button>
 
-          <div class="card kpi">
+          <button type="button" class="card kpi metric-card" data-target-section="employees" data-status-filter="absent">
             <div class="label">Absent (today)</div>
             <div class="value" style="color:var(--danger)"><?php echo $absentCount; ?></div>
             <div class="small muted">Not recorded today</div>
-          </div>
+          </button>
 
-          <div class="card kpi">
+          <button type="button" class="card kpi metric-card" data-target-section="employees" data-status-filter="half-day">
             <div class="label">Half-day (today)</div>
             <div class="value"><?php echo $halfDayCount; ?></div>
             <div class="small muted">Incomplete day</div>
-          </div>
+          </button>
 
-          <div class="card kpi">
+          <button type="button" class="card kpi metric-card" data-target-section="employees" data-status-filter="late">
             <div class="label">Late (today)</div>
             <div class="value"><?php echo $lateCount; ?></div>
             <div class="small muted">Arrived after grace</div>
-          </div>
+          </button>
 
           <div class="card full" style="margin-top:8px">
             <h3 style="margin-top:0">Notes</h3>
-            <p class="small muted">This is the MVP overview. Use the sidebar to navigate to other areas (Employees, Attendance, Departments, Reports, Settings).</p>
+            <p class="small muted">Tap a card to jump to employees filtered by today&apos;s status. Then tap any employee row to view their profile and attendance history.</p>
           </div>
         </section>
       </section>
@@ -1124,137 +1278,127 @@ if (isset($_GET['ajax'])) {
 
         <div class="grid" style="align-items:start">
           <!-- Add employee card (refactored, compact & responsive) -->
-          <div class="card full" id="add-employee" aria-labelledby="add-employee-h" style="overflow:hidden">
-            <h3 id="add-employee-h" style="margin-top:0">Add employee</h3>
+         <!-- Add employee card (FIXED) -->
+<div class="card full" id="add-employee" aria-labelledby="add-employee-h" style="overflow:hidden">
+  <h3 id="add-employee-h" style="margin-top:0">Add employee</h3>
 
-            <form method="post" action="admin.php" enctype="multipart/form-data" class="add-form" novalidate id="empAddForm">
-              <input type="hidden" name="action" value="add_employee">
-              <div class="add-form-grid" role="group" aria-labelledby="add-employee-h">
-                <!-- Identity group -->
-                <div class="group-identity">
-                  <div class="field">
-                    <label class="field-label" for="id_code">Employee ID Code</label>
-                    <input id="id_code" name="id_code" type="text" placeholder="Unique ID (e.g. 3001)" required maxlength="64" pattern="[A-Za-z0-9\-_]{2,64}" title="Letters, numbers, - or _ (2-64 chars)">
-                  </div>
+  <form method="post" action="admin.php" enctype="multipart/form-data" class="add-form" novalidate id="empAddForm">
+    <input type="hidden" name="action" value="add_employee">
+    <input type="hidden" name="section" value="employees">
+    
+    <div class="add-form-grid" role="group" aria-labelledby="add-employee-h">
+      <!-- Identity group -->
+      <div class="group-identity">
+        <div class="field">
+          <label class="field-label" for="id_code">Employee ID Code</label>
+          <input id="id_code" name="id_code" type="text" placeholder="Unique ID (e.g. 3001)" required maxlength="64" pattern="[A-Za-z0-9\-_]{2,64}" title="Letters, numbers, - or _ (2-64 chars)">
+        </div>
 
-                  <div class="field" style="display:flex;gap:8px">
-                    <div class="field" style="flex:1">
-                      <label class="field-label" for="last_name">Last Name</label>
-                      <input id="last_name" name="last_name" type="text" placeholder="Last name" required maxlength="255">
-                    </div>
-                    <div class="field" style="flex:1">
-                      <label class="field-label" for="first_name">First Name</label>
-                      <input id="first_name" name="first_name" type="text" placeholder="First name" required maxlength="255">
-                    </div>
-                    <div class="field" style="flex:0 0 120px">
-                      <label class="field-label" for="middle_initial">Middle Initial</label>
-                      <input id="middle_initial" name="middle_initial" type="text" placeholder="M" maxlength="1">
-                    </div>
-                  </div>
-
-                  <div class="field">
-                    <label class="field-label" for="date_hired">Date Hired</label>
-                    <input id="date_hired" name="date_hired" type="date" value="<?php echo date('Y-m-d'); ?>" required>
-                  </div>
-
-                  <div class="field" style="display:flex;gap:8px">
-                    <div class="field" style="flex:1">
-                      <label class="field-label" for="sss_number">SSS Number</label>
-                      <input id="sss_number" name="sss_number" type="text" maxlength="64" placeholder="e.g. 01-2345678-9">
-                    </div>
-                    <div class="field" style="flex:1">
-                      <label class="field-label" for="philhealth_number">PhilHealth Number</label>
-                      <input id="philhealth_number" name="philhealth_number" type="text" maxlength="64" placeholder="e.g. 12-345678901-2">
-                    </div>
-                  </div>
-
-                  <div class="field" style="display:flex;gap:8px">
-                    <div class="field" style="flex:1">
-                      <label class="field-label" for="tin_number">TIN / Tax ID</label>
-                      <input id="tin_number" name="tin_number" type="text" maxlength="64" placeholder="e.g. 123-456-789">
-                    </div>
-                    <div class="field" style="flex:1">
-                      <label class="field-label" for="nbi_number">NBI Clearance No.</label>
-                      <input id="nbi_number" name="nbi_number" type="text" maxlength="64" placeholder="NBI clearance number">
-                    </div>
-                  </div>
-
-                  <div class="field">
-                    <label class="field-label" for="pagibig_number">Pag-IBIG Number</label>
-                    <input id="pagibig_number" name="pagibig_number" type="text" maxlength="64" placeholder="Pag-IBIG ID number">
-                  </div>
-                </div>
-
-                <!-- Work info group -->
-                <div class="group-work">
-                  <div class="field">
-                    <label class="field-label" for="department">Department</label>
-                    <select id="department" name="department" required>
-                      <?php foreach ($departments as $d): ?>
-                        <option value="<?php echo htmlspecialchars($d); ?>"><?php echo htmlspecialchars($d); ?></option>
-                      <?php endforeach; ?>
-                    </select>
-                  </div>
-
-                  <div class="field">
-                    <label class="field-label" for="position">Position / Role</label>
-                    <input id="position" name="position" type="text" placeholder="e.g. Sales Associate, Engineer" required maxlength="150">
-                  </div>
-
-                  <div class="field" style="display:flex;gap:8px">
-                    <div style="flex:1">
-                      <label class="field-label" for="employment_type">Employment Type</label>
-                      <select id="employment_type" name="employment_type" required>
-                        <option value="Full-time">Full-time</option>
-                        <option value="Part-time">Part-time</option>
-                        <option value="Contract">Contract</option>
-                      </select>
-                    </div>
-
-                    <div style="flex:1">
-                      <label class="field-label" for="shift">Work Schedule / Shift</label>
-                      <input id="shift" name="shift" type="text" placeholder="e.g. 08:30-17:30" required maxlength="100">
-                    </div>
-                  </div>
-
-                  <div class="field" style="display:flex;gap:8px">
-                    <div class="field" style="flex:1">
-                      <label class="field-label" for="base_salary">Base Salary (Monthly)</label>
-                      <input id="base_salary" name="base_salary" type="number" step="0.01" placeholder="e.g. 50000.00">
-                    </div>
-
-                    <div class="field" style="flex:1">
-                      <label class="field-label" for="overtime_rate">Overtime Rate (per hour)</label>
-                      <input id="overtime_rate" name="overtime_rate" type="number" step="0.01" placeholder="e.g. 150.00">
-                    </div>
-                  </div>
-
-                <!-- Photo & system group -->
-                <div class="group-photo">
-                  <div class="field" style="width:100%">
-                    <label class="field-label" for="photo">Profile Photo</label>
-                    <div class="photo-preview" id="photoPreview">No image selected</div>
-                    <input id="photo" name="photo" type="file" accept="image/*" required>
-                  </div>
-
-                  <div class="field" style="width:100%">
-                    <label class="field-label" for="attendance_status">Attendance Status</label>
-                    <select id="attendance_status" name="attendance_status" required>
-                      <option value="Active">Active</option>
-                      <option value="Inactive">Inactive</option>
-                      <option value="Suspended">Suspended</option>
-                    </select>
-                  </div>
-
-                  <div class="form-actions" style="width:100%">
-                    <button type="submit" class="btn primary" id="addEmployeeBtn">Add Employee</button>
-                    <button type="button" class="btn ghost" id="resetEmpForm">Reset</button>
-                    <span class="validation-error" id="addFormFeedback" role="alert"></span>
-                  </div>
-                </div>
-              </div>
-            </form>
+        <div class="field" style="display:flex;gap:8px">
+          <div class="field" style="flex:1">
+            <label class="field-label" for="last_name">Last Name</label>
+            <input id="last_name" name="last_name" type="text" placeholder="Last name" required maxlength="255">
           </div>
+          <div class="field" style="flex:1">
+            <label class="field-label" for="first_name">First Name</label>
+            <input id="first_name" name="first_name" type="text" placeholder="First name" required maxlength="255">
+          </div>
+          <div class="field" style="flex:0 0 120px">
+            <label class="field-label" for="middle_initial">Middle Initial</label>
+            <input id="middle_initial" name="middle_initial" type="text" placeholder="M" maxlength="1">
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="date_hired">Date Hired</label>
+          <input id="date_hired" name="date_hired" type="date" value="<?php echo date('Y-m-d'); ?>" required>
+        </div>
+      </div>
+
+      <!-- Work info group -->
+      <div class="group-work">
+        <div class="field">
+          <label class="field-label" for="department">Department</label>
+          <select id="department" name="department" required>
+            <?php foreach ($departments as $d): ?>
+              <option value="<?php echo htmlspecialchars($d); ?>"><?php echo htmlspecialchars($d); ?></option>
+            <?php endforeach; ?>
+          </select>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="position">Position / Role</label>
+          <input id="position" name="position" type="text" placeholder="e.g. Sales Associate, Engineer" required maxlength="150">
+        </div>
+
+        <div class="field" style="display:flex;gap:8px">
+          <div style="flex:1">
+            <label class="field-label" for="employment_type">Employment Type</label>
+            <select id="employment_type" name="employment_type" required>
+              <option value="Full-time">Full-time</option>
+              <option value="Part-time">Part-time</option>
+              <option value="Contract">Contract</option>
+            </select>
+          </div>
+
+          <div style="flex:1">
+            <label class="field-label" for="shift">Work Schedule / Shift</label>
+            <input id="shift" name="shift" type="text" placeholder="e.g. 08:30-17:30" required maxlength="100">
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="attendance_status">Attendance Status</label>
+          <select id="attendance_status" name="attendance_status" required>
+            <option value="Active">Active</option>
+            <option value="Inactive">Inactive</option>
+            <option value="Suspended">Suspended</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Compliance & Photo group -->
+      <div class="group-photo">
+        <div class="field">
+          <label class="field-label" for="sss_number">SSS Number</label>
+          <input id="sss_number" name="sss_number" type="text" maxlength="64" placeholder="e.g. 01-2345678-9">
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="philhealth_number">PhilHealth Number</label>
+          <input id="philhealth_number" name="philhealth_number" type="text" maxlength="64" placeholder="e.g. 12-345678901-2">
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="tin_number">TIN / Tax ID</label>
+          <input id="tin_number" name="tin_number" type="text" maxlength="64" placeholder="e.g. 123-456-789">
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="nbi_number">NBI Clearance No.</label>
+          <input id="nbi_number" name="nbi_number" type="text" maxlength="64" placeholder="NBI clearance number">
+        </div>
+
+        <div class="field">
+          <label class="field-label" for="pagibig_number">Pag-IBIG Number</label>
+          <input id="pagibig_number" name="pagibig_number" type="text" maxlength="64" placeholder="Pag-IBIG ID number">
+        </div>
+
+        <div class="field" style="width:100%">
+          <label class="field-label" for="photo">Profile Photo *</label>
+          <div class="photo-preview" id="photoPreview">No image selected</div>
+          <input id="photo" name="photo" type="file" accept="image/*" required>
+        </div>
+
+        <div class="form-actions" style="width:100%">
+          <button type="submit" class="btn primary" id="addEmployeeBtn">Add Employee</button>
+          <button type="button" class="btn ghost" id="resetEmpForm">Reset</button>
+        </div>
+        <span class="validation-error" id="addFormFeedback" role="alert"></span>
+      </div>
+    </div>
+  </form>
+</div>
 
           <!-- Employee table (unchanged) -->
           <div class="card full" style="padding-bottom:8px;">
@@ -1267,6 +1411,16 @@ if (isset($_GET['ajax'])) {
               <?php foreach ($departments as $d): ?>
                 <option value="<?php echo htmlspecialchars($d); ?>"><?php echo htmlspecialchars($d); ?></option>
               <?php endforeach; ?>
+            </select>
+            <select id="filterStatusEmployees" aria-label="Filter by status" style="padding:8px;border-radius:8px;border:1px solid var(--surface-2)">
+              <option value="">All statuses</option>
+              <option value="in">Currently IN</option>
+              <option value="out">Currently OUT</option>
+              <option value="on time">On time</option>
+              <option value="late">Late</option>
+              <option value="half-day">Half-day</option>
+              <option value="absent">Absent</option>
+              <option value="on leave">On Leave</option>
             </select>
           </div>
               <div style="display:flex;gap:8px">
@@ -1367,6 +1521,7 @@ if (isset($_GET['ajax'])) {
         <col class="col-name">
         <col class="col-dept">
         <col class="col-pos">
+        <col class="col-status">
         <col class="col-cal">
         <col class="col-act">
       </colgroup>
@@ -1378,6 +1533,7 @@ if (isset($_GET['ajax'])) {
           <th scope="col">Full name</th>
           <th scope="col">Department</th>
           <th scope="col">Position</th>
+          <th scope="col">Status</th>
           <th scope="col" aria-label="Calendar"></th>
           <th scope="col">Actions</th>
         </tr>
@@ -1400,7 +1556,7 @@ if (isset($_GET['ajax'])) {
             $position = htmlspecialchars($row['position'] ?? '');
             $hasLeave = !empty($todayStatusByEmployee[$empId]['leave_note']);
           ?>
-            <tr id="emp-row-<?php echo $empId; ?>">
+            <tr id="emp-row-<?php echo $empId; ?>" data-employee-id="<?php echo $empId; ?>" data-employee-status="<?php echo htmlspecialchars(strtolower($todayStatusByEmployee[$empId]['label'] ?? 'unknown')); ?>" data-employee-last-status="<?php echo htmlspecialchars(strtolower($row['last_status'] ?? '')); ?>">
               <!-- Photo -->
               <td>
                 <img alt="<?php echo $empName; ?> photo" src="<?php echo $photoPath; ?>" class="emp-thumb" loading="lazy">
@@ -1417,6 +1573,11 @@ if (isset($_GET['ajax'])) {
 
               <!-- Position -->
               <td title="<?php echo $position; ?>"><?php echo $position ?: '—'; ?></td>
+
+              <!-- Status -->
+              <td>
+                <span class="badge-status <?php echo htmlspecialchars($todayStatusByEmployee[$empId]['class'] ?? 'neutral'); ?>"><?php echo htmlspecialchars($todayStatusByEmployee[$empId]['label'] ?? 'Unknown'); ?></span>
+              </td>
 
               <!-- Calendar button -->
               <td style="text-align:center">
@@ -1539,8 +1700,8 @@ if (isset($_GET['ajax'])) {
   (function(){
     // Config (mirror server)
     const SHIFT_START = '08:30:00';
-    const GRACE_MINUTES = 15;
-    const MIN_WORK_SECONDS = 4 * 3600;
+    const GRACE_MINUTES = 5;
+    const MIN_WORK_SECONDS = 6 * 3600;
 
     // Elements
     const calEl = document.getElementById('compactCalendar');
@@ -1693,55 +1854,49 @@ function parseYMDHMS(dt) {
   return new Date(year, month, day, hour, minute, second).getTime();
 }
 function computeStatus(firstIn, lastOut) {
-  if (!firstIn && !lastOut) return { label: 'Absent', cls: 'absent' };
-
-  // Parse the ISO timestamps
-  const fi = parseYMDHMS(firstIn);
-  const lo = parseYMDHMS(lastOut);
-  
-  // Get shift time components
   const [sh, sm, ss] = SHIFT_START.split(':').map(Number);
-  
-  // Build the grace period end time (8:45:00) for the selected date
   const year = selectedDate.getFullYear();
   const month = selectedDate.getMonth();
   const date = selectedDate.getDate();
-  
-  // Create grace threshold in milliseconds (8:45:00 AM)
-  const graceEndTime = new Date(year, month, date, sh, sm + GRACE_MINUTES, ss);
-  const graceEndTs = graceEndTime.getTime();
-  
-  // If only time-in exists
-  if (fi && !lo) {
-    if (fi > graceEndTs) {
-      return { label: 'Late', cls: 'late' };
-    }
-    return { label: 'On Time', cls: 'on' };
+  const shiftStartTs = new Date(year, month, date, sh, sm, ss).getTime();
+  const graceEndTs = new Date(year, month, date, sh, sm + GRACE_MINUTES, ss).getTime();
+  const absentAfterTs = new Date(year, month, date, 13, 0, 0).getTime();
+
+  const fi = parseYMDHMS(firstIn);
+  const lo = parseYMDHMS(lastOut);
+
+  if (!fi && !lo) {
+    return { label: 'Absent', cls: 'absent' };
   }
 
-  // If only time-out exists (edge case)
+  if (fi && fi >= absentAfterTs) {
+    return { label: 'Absent', cls: 'absent' };
+  }
+
+  if (fi && !lo) {
+    return { label: 'Half-day', cls: 'half' };
+  }
+
   if (!fi && lo) {
     return { label: 'Half-day', cls: 'half' };
   }
 
-  // Both time-in and time-out exist
   const worked = Math.max(0, Math.floor((lo - fi) / 1000));
+  const isLate = fi > graceEndTs;
   const isFullDay = worked >= MIN_WORK_SECONDS;
 
-  // Determine if late
-  const isLate = fi > graceEndTs;
+  if (!isFullDay) {
+    if (isLate) {
+      return { label: 'Under time | Late', cls: 'half' };
+    }
+    return { label: 'Under time', cls: 'half' };
+  }
 
   if (isLate) {
-    if (!isFullDay) {
-      return { label: 'Half-day | Late', cls: 'half' };
-    }
     return { label: 'Late', cls: 'late' };
-  } else {
-    if (!isFullDay) {
-      return { label: 'Early Out', cls: 'half' };
-    }
-    return { label: 'Regular', cls: 'on' };
   }
+
+  return { label: 'Regular', cls: 'on' };
 }
   
 
@@ -1954,233 +2109,6 @@ tr.appendChild(tdOut);
         </div>
       </section>
 
-      <!-- Payroll section -->
-      <section id="section-payroll" class="section" aria-labelledby="payroll-h">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-          <h2 id="payroll-h" style="margin:0">Payroll</h2>
-          <div class="small muted">View computed salaries</div>
-        </div>
-
-        <div class="card">
-          <p class="small muted">Select a month to compute salaries based on attendance hours.</p>
-          <form method="get" action="admin.php" style="margin-bottom:16px">
-            <label for="payroll_month">Month:</label>
-            <input type="month" id="payroll_month" name="month" value="<?php echo htmlspecialchars($_GET['month'] ?? date('Y-m')); ?>" required>
-            <button type="submit" class="btn primary">Compute Salaries</button>
-          </form>
-
-          <?php
-          if (isset($_GET['month'])) {
-            $month = $_GET['month'];
-            if (!preg_match('/^[0-9]{4}-[0-9]{2}$/', $month)) {
-              echo "<p class='small muted'>Invalid month selected.</p>";
-            } else {
-              $year = substr($month, 0, 4);
-              $mon = substr($month, 5, 2);
-              $startDate = "$year-$mon-01";
-              $endDate = date('Y-m-t', strtotime($startDate));
-              $payrollEmpId = isset($_GET['payroll_emp']) ? (int)$_GET['payroll_emp'] : 0;
-
-              $stdHoursColumn = '';
-              try {
-                $pdo->query('SELECT standard_hours_month FROM employees LIMIT 1');
-                $stdHoursColumn = ', standard_hours_month';
-              } catch (Exception $e) {
-                $stdHoursColumn = '';
-              }
-
-              $stmt = $pdo->prepare('SELECT id, id_code, name, department, base_salary, overtime_rate' . $stdHoursColumn . ' FROM employees WHERE base_salary IS NOT NULL ORDER BY name');
-              $stmt->execute();
-              $emps = $stmt->fetchAll(PDO::FETCH_ASSOC);
-
-              if (empty($emps)) {
-                echo "<p class='small muted'>No payroll data available yet. Please assign base salary values to employees.</p>";
-              } else {
-                $fetchAttendanceByDate = function($employeeId, $from, $to) use ($pdo) {
-                  $stmt = $pdo->prepare("SELECT event_type, created_at FROM attendance WHERE employee_id = ? AND DATE(created_at) BETWEEN ? AND ? AND event_type IN ('in','out') ORDER BY created_at ASC");
-                  $stmt->execute([$employeeId, $from, $to]);
-                  $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
-                  $days = [];
-                  foreach ($rows as $r) {
-                    $day = substr($r['created_at'], 0, 10);
-                    if (!isset($days[$day])) {
-                      $days[$day] = ['in' => null, 'out' => null];
-                    }
-                    if ($r['event_type'] === 'in') {
-                      if ($days[$day]['in'] === null || strcmp($r['created_at'], $days[$day]['in']) < 0) {
-                        $days[$day]['in'] = $r['created_at'];
-                      }
-                    }
-                    if ($r['event_type'] === 'out') {
-                      if ($days[$day]['out'] === null || strcmp($r['created_at'], $days[$day]['out']) > 0) {
-                        $days[$day]['out'] = $r['created_at'];
-                      }
-                    }
-                  }
-                  return $days;
-                };
-
-                $computePayroll = function($employee, $from, $to) use ($fetchAttendanceByDate) {
-                  $base = (float)($employee['base_salary'] ?? 0);
-                  $otRate = (float)($employee['overtime_rate'] ?? 0);
-                  $stdHours = isset($employee['standard_hours_month']) ? (int)$employee['standard_hours_month'] : 160;
-                  $days = $fetchAttendanceByDate($employee['id'], $from, $to);
-                  $workedHours = 0;
-                  foreach ($days as $day) {
-                    if (!empty($day['in']) && !empty($day['out'])) {
-                      $inTs = strtotime($day['in']);
-                      $outTs = strtotime($day['out']);
-                      if ($outTs > $inTs) {
-                        $workedHours += ($outTs - $inTs) / 3600;
-                      }
-                    }
-                  }
-                  $otHours = max(0, $workedHours - $stdHours);
-                  $otPay = $otHours * $otRate;
-                  $total = $workedHours > 0 ? $base + $otPay : 0;
-                  $taxRate = 0.12;
-                  $tax = round($total * $taxRate, 2);
-                  return [
-                    'base_salary' => $base,
-                    'overtime_rate' => $otRate,
-                    'standard_hours_month' => $stdHours,
-                    'worked_hours' => $workedHours,
-                    'ot_hours' => $otHours,
-                    'ot_pay' => $otPay,
-                    'total_pay' => $total,
-                    'tax_amount' => $tax,
-                    'net_pay' => max(0, $total - $tax),
-                  ];
-                };
-
-                $payrollRows = [];
-                $totalBase = 0;
-                $totalOTPay = 0;
-                $totalSalary = 0;
-                $totalEmployees = count($emps);
-                $selectedEmp = null;
-                $selectedEmployeeDetails = null;
-
-                foreach ($emps as $emp) {
-                  if ($payrollEmpId === (int)$emp['id']) {
-                    $selectedEmp = $emp;
-                  }
-                  $details = $computePayroll($emp, $startDate, $endDate);
-                  $payrollRows[] = [
-                    'id' => (int)$emp['id'],
-                    'name' => htmlspecialchars($emp['name']),
-                    'id_code' => htmlspecialchars($emp['id_code']),
-                    'department' => htmlspecialchars($emp['department'] ?? '—'),
-                    'base' => $details['base_salary'],
-                    'hours' => $details['worked_hours'],
-                    'ot_hours' => $details['ot_hours'],
-                    'ot_pay' => $details['ot_pay'],
-                    'total' => $details['total_pay'],
-                  ];
-                  $totalBase += $details['base_salary'];
-                  $totalOTPay += $details['ot_pay'];
-                  $totalSalary += $details['total_pay'];
-                }
-
-                if ($selectedEmp) {
-                  $selectedEmployeeDetails = $computePayroll($selectedEmp, $startDate, $endDate);
-                  $history = [];
-                  for ($i = 5; $i >= 0; $i--) {
-                    $historyMonth = date('Y-m-01', strtotime("-{$i} months", strtotime($startDate)));
-                    $historyEnd = date('Y-m-t', strtotime($historyMonth));
-                    $historyDetails = $computePayroll($selectedEmp, $historyMonth, $historyEnd);
-                    $history[] = [
-                      'label' => date('F Y', strtotime($historyMonth)),
-                      'base' => $historyDetails['base_salary'],
-                      'hours' => $historyDetails['worked_hours'],
-                      'ot_hours' => $historyDetails['ot_hours'],
-                      'ot_pay' => $historyDetails['ot_pay'],
-                      'total' => $historyDetails['total_pay'],
-                    ];
-                  }
-                  $selectedEmployeeDetails['history'] = $history;
-                }
-
-                echo "<div class='payroll-summary'>";
-                echo "<div class='metric-card'><span class='metric-label'>Month</span><span class='metric-value'>" . htmlspecialchars(date('F Y', strtotime($startDate))) . "</span></div>";
-                echo "<div class='metric-card'><span class='metric-label'>Employees</span><span class='metric-value'>" . number_format($totalEmployees) . "</span></div>";
-                echo "<div class='metric-card'><span class='metric-label'>Base payroll</span><span class='metric-value'>₱" . number_format($totalBase, 2) . "</span></div>";
-                echo "<div class='metric-card'><span class='metric-label'>Overtime pay</span><span class='metric-value'>₱" . number_format($totalOTPay, 2) . "</span></div>";
-                echo "<div class='metric-card'><span class='metric-label'>Total payroll</span><span class='metric-value'>₱" . number_format($totalSalary, 2) . "</span></div>";
-                echo "</div>";
-
-                echo "<table class='data-table'>";
-                echo "<thead><tr><th>Employee</th><th>Department</th><th>Base Salary</th><th>Hours Worked</th><th>Overtime Hours</th><th>Overtime Pay</th><th>Total Salary</th></tr></thead><tbody>";
-                foreach ($payrollRows as $row) {
-                  $link = 'admin.php?month=' . rawurlencode($month) . '&payroll_emp=' . $row['id'] . '#payroll';
-                  echo "<tr>";
-                  echo "<td><a class='payroll-employee-link' href='$link'>" . $row['name'] . "</a> (" . $row['id_code'] . ")</td>";
-                  echo "<td>" . $row['department'] . "</td>";
-                  echo "<td>₱" . number_format($row['base'], 2) . "</td>";
-                  echo "<td>" . number_format($row['hours'], 2) . "</td>";
-                  echo "<td>" . number_format($row['ot_hours'], 2) . "</td>";
-                  echo "<td>₱" . number_format($row['ot_pay'], 2) . "</td>";
-                  echo "<td><strong>₱" . number_format($row['total'], 2) . "</strong></td>";
-                  echo "</tr>";
-                }
-                echo "</tbody></table>";
-
-                if ($payrollEmpId && $selectedEmployeeDetails) {
-                  echo "<div class='card' style='margin-top:20px;padding:18px;'>";
-                  echo "<div style='display:flex;justify-content:space-between;align-items:flex-start;gap:12px;margin-bottom:16px;'>";
-                  echo "<div><h3 style='margin:0 0 8px'>" . htmlspecialchars($selectedEmp['name']) . "</h3>";
-                  echo "<div class='small muted'>" . htmlspecialchars($selectedEmp['department'] ?? 'No department') . "</div>";
-                  echo "</div>";
-                  echo "<a href='admin.php?month=" . rawurlencode($month) . "#payroll' class='btn ghost' style='padding:8px 12px;'>Back to payroll list</a>";
-                  echo "</div>";
-
-                  if ($selectedEmployeeDetails['worked_hours'] == 0) {
-                    echo "<div class='small muted' style='padding:16px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;text-align:center;'>No attendance records found for this month. Total salary: ₱0.00</div>";
-                  } else {
-                    echo "<div class='payroll-summary' style='margin-bottom:18px;'>";
-                    echo "<div class='metric-card'><span class='metric-label'>Employee</span><span class='metric-value'>" . htmlspecialchars($selectedEmp['name']) . "</span></div>";
-                    echo "<div class='metric-card'><span class='metric-label'>Employee ID</span><span class='metric-value'>" . htmlspecialchars($selectedEmp['id_code']) . "</span></div>";
-                    echo "<div class='metric-card'><span class='metric-label'>Base salary</span><span class='metric-value'>₱" . number_format($selectedEmployeeDetails['base_salary'], 2) . "</span></div>";
-                    echo "<div class='metric-card'><span class='metric-label'>Overtime rate</span><span class='metric-value'>₱" . number_format($selectedEmployeeDetails['overtime_rate'], 2) . "</span></div>";
-                    echo "</div>";
-                    echo "<div style='display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:18px;'>";
-                    echo "<div style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;'>";
-                    echo "<div class='metric-label'>Current month payroll</div>";
-                    echo "<div class='metric-value'>₱" . number_format($selectedEmployeeDetails['total_pay'], 2) . "</div>";
-                    echo "<div class='small muted' style='margin-top:8px;'>Hours: " . number_format($selectedEmployeeDetails['worked_hours'], 2) . ". Overtime: " . number_format($selectedEmployeeDetails['ot_hours'], 2) . "</div>";
-                    echo "</div>";
-                    echo "<div style='background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:14px;'>";
-                    echo "<div class='metric-label'>Tax estimate</div>";
-                    echo "<div class='metric-value'>₱" . number_format($selectedEmployeeDetails['tax_amount'], 2) . "</div>";
-                    echo "<div class='small muted' style='margin-top:8px;'>Net pay: ₱" . number_format($selectedEmployeeDetails['net_pay'], 2) . "</div>";
-                    echo "</div>";
-                    echo "</div>";
-                    echo "<div style='margin-top:18px;'>";
-                    echo "<h4 style='margin-bottom:10px'>Payroll history</h4>";
-                    echo "<table class='data-table' style='width:100%;'>";
-                    echo "<thead><tr><th>Month</th><th>Base Salary</th><th>Hours Worked</th><th>Overtime Hours</th><th>Overtime Pay</th><th>Total Pay</th></tr></thead><tbody>";
-                    foreach ($selectedEmployeeDetails['history'] as $hist) {
-                      echo "<tr>";
-                      echo "<td>" . htmlspecialchars($hist['label']) . "</td>";
-                      echo "<td>₱" . number_format($hist['base'], 2) . "</td>";
-                      echo "<td>" . number_format($hist['hours'], 2) . "</td>";
-                      echo "<td>" . number_format($hist['ot_hours'], 2) . "</td>";
-                      echo "<td>₱" . number_format($hist['ot_pay'], 2) . "</td>";
-                      echo "<td>₱" . number_format($hist['total'], 2) . "</td>";
-                      echo "</tr>";
-                    }
-                    echo "</tbody></table>";
-                    echo "</div>";
-                  }
-                  echo "</div>";
-                }
-              }
-            }
-          }
-          ?>
-        </div>
-      </section>
-
       <!-- Settings section (placeholder) -->
       <section id="section-settings" class="section" aria-labelledby="settings-h">
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
@@ -2189,7 +2117,93 @@ tr.appendChild(tdOut);
         </div>
 
         <div class="card">
-          <p class="small muted">Manage application settings, change admin password, configure SMTP, or update general preferences. Settings are intentionally limited in MVP mode.</p>
+          <p class="small muted">Manage application settings, create sub-admin accounts, and view admin access details.</p>
+
+          <form method="post" action="admin.php" enctype="multipart/form-data" class="add-form" style="margin-bottom:16px;" novalidate>
+            <input type="hidden" name="action" value="add_admin_user">
+            <input type="hidden" name="section" value="settings">
+
+            <div class="form-row">
+              <div class="field">
+                <label class="field-label" for="username">Username</label>
+                <input id="username" name="username" type="text" placeholder="admin username" required>
+              </div>
+              <div class="field">
+                <label class="field-label" for="password">Password</label>
+                <input id="password" name="password" type="password" placeholder="password" required>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="field">
+                <label class="field-label" for="full_name">Full Name</label>
+                <input id="full_name" name="full_name" type="text" placeholder="John Doe" required>
+              </div>
+              <div class="field">
+                <label class="field-label" for="position">Position</label>
+                <input id="position" name="position" type="text" placeholder="HR Manager, Sub-admin, etc.">
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="field" style="flex:1">
+                <label class="field-label" for="photo">Photo (optional)</label>
+                <input id="photo" name="photo" type="file" accept="image/*">
+              </div>
+            </div>
+
+            <button type="submit" class="btn primary">Add Sub Admin</button>
+          </form>
+
+          <div style="overflow-x:auto;">
+            <table class="employee-table" role="table" aria-label="Admin accounts">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Username</th>
+                  <th>Name</th>
+                  <th>Position</th>
+                  <th>Password</th>
+                  <th>Photo</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                <?php if (empty($adminList)): ?>
+                  <tr><td colspan="7" class="small muted">No admin accounts found.</td></tr>
+                <?php else: ?>
+                  <?php foreach ($adminList as $admin): ?>
+                    <tr>
+                      <td><?php echo htmlspecialchars($admin['id']); ?></td>
+                      <td><?php echo htmlspecialchars($admin['username']); ?></td>
+                      <td><?php echo htmlspecialchars($admin['fullname'] ?? ''); ?></td>
+                      <td><?php echo htmlspecialchars($admin['position'] ?? ''); ?></td>
+                      <td><?php echo htmlspecialchars($admin['password_plain'] ?? ''); ?></td>
+                      <td>
+                        <?php if (!empty($admin['photo'])): ?>
+                          <img src="uploads/admins/<?php echo htmlspecialchars($admin['photo']); ?>" alt="<?php echo htmlspecialchars($admin['fullname'] ?? $admin['username']); ?>" width="48" height="48" style="border-radius:50%;object-fit:cover;">
+                        <?php else: ?>
+                          <span class="small muted">No photo</span>
+                        <?php endif; ?>
+                      </td>
+                      <td>
+                        <?php if (!empty($_SESSION['admin_user']) && $admin['username'] === $_SESSION['admin_user']): ?>
+                          <span class="small muted">Signed in</span>
+                        <?php else: ?>
+                          <form method="post" action="admin.php" onsubmit="return confirm('Delete admin <?php echo htmlspecialchars(addslashes($admin['username'])); ?>?');">
+                            <input type="hidden" name="action" value="delete_admin_user">
+                            <input type="hidden" name="section" value="settings">
+                            <input type="hidden" name="admin_id" value="<?php echo htmlspecialchars($admin['id']); ?>">
+                            <button type="submit" class="btn ghost" style="color:var(--danger);">Delete</button>
+                          </form>
+                        <?php endif; ?>
+                      </td>
+                    </tr>
+                  <?php endforeach; ?>
+                <?php endif; ?>
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
     </main>
@@ -2198,7 +2212,6 @@ tr.appendChild(tdOut);
 
   <!-- Small client-side router to show/hide sections and highlight nav + form behavior -->
   <script>
-      window.autoOpenPayroll = <?php echo isset($_GET['month']) ? 'true' : 'false'; ?>;
     (function(){
       const navLinks = Array.from(document.querySelectorAll('.nav a[data-section]'));
       const sections = Array.from(document.querySelectorAll('.section'));
@@ -2253,9 +2266,6 @@ tr.appendChild(tdOut);
         if (hash && sectionByName[hash]) {
           return hash;
         }
-        if (window.autoOpenPayroll === true && sectionByName['payroll']) {
-          return 'payroll';
-        }
         return 'dashboard';
       }
 
@@ -2271,15 +2281,17 @@ tr.appendChild(tdOut);
 (function(){
   const empSearch = document.getElementById('searchInputEmployees');
   const empFilterDept = document.getElementById('filterDepartmentEmployees');
+  const empFilterStatus = document.getElementById('filterStatusEmployees');
   
   function applyEmployeeFilters() {
-    if (!empSearch || !empFilterDept) {
+    if (!empSearch || !empFilterDept || !empFilterStatus) {
       console.warn('Employee filter elements not found');
       return;
     }
     
     const searchQuery = empSearch.value.trim().toLowerCase();
     const deptFilter = empFilterDept.value.trim().toLowerCase();
+    const statusFilter = empFilterStatus.value.trim().toLowerCase();
     
     // Target the actual employee table
     const tbody = document.querySelector('table.employee-table tbody');
@@ -2299,22 +2311,22 @@ tr.appendChild(tdOut);
       }
       
       const cells = row.querySelectorAll('td');
-      if (cells.length < 7) return;
+      if (cells.length < 8) return;
       
-      // Map cells to columns: photo, id, name, dept, position, calendar, actions
       const idCode = (cells[1]?.textContent || '').trim().toLowerCase();
       const empName = (cells[2]?.textContent || '').trim().toLowerCase();
       const dept = (cells[3]?.textContent || '').trim().toLowerCase();
+      const rowStatus = (row.dataset.employeeStatus || '').trim().toLowerCase();
+      const rowLastStatus = (row.dataset.employeeLastStatus || '').trim().toLowerCase();
       
-      // Apply filters
       const matchesSearch = 
         searchQuery === '' ||
         idCode.includes(searchQuery) ||
         empName.includes(searchQuery);
-        
       const matchesDept = deptFilter === '' || dept === deptFilter;
+      const matchesStatus = statusFilter === '' || rowStatus === statusFilter || rowLastStatus === statusFilter;
       
-      const shouldShow = matchesSearch && matchesDept;
+      const shouldShow = matchesSearch && matchesDept && matchesStatus;
       row.style.display = shouldShow ? '' : 'none';
       
       if (shouldShow) visibleCount++;
@@ -2330,17 +2342,51 @@ tr.appendChild(tdOut);
   if (empFilterDept) {
     empFilterDept.addEventListener('change', applyEmployeeFilters);
   }
-})();
-      // When switching to employees, ensure filters are applied
-      navLinks.forEach(a => {
-        a.addEventListener('click', function(){
-          if (this.dataset.section === 'employees') {
-            if (empSearch) {
-              applyEmployeeFilters();
-            }
-          }
-        });
+  
+  if (empFilterStatus) {
+    empFilterStatus.addEventListener('change', applyEmployeeFilters);
+  }
+
+  // When switching to employees, ensure filters are applied
+  navLinks.forEach(a => {
+    a.addEventListener('click', function(){
+      if (this.dataset.section === 'employees') {
+        applyEmployeeFilters();
+      }
+    });
+  });
+
+  // Filter employees from dashboard cards and allow row click navigation
+  const metricCards = Array.from(document.querySelectorAll('button.metric-card'));
+  const employeeTableBody = document.querySelector('table.employee-table tbody');
+
+  if (metricCards.length && empFilterStatus && empFilterDept && empSearch) {
+    metricCards.forEach(card => {
+      card.addEventListener('click', () => {
+        const filter = card.dataset.statusFilter || '';
+        setActiveSection('employees', true);
+        empSearch.value = '';
+        empFilterDept.value = '';
+        empFilterStatus.value = filter;
+        applyEmployeeFilters();
+        if (employeeTableBody) {
+          employeeTableBody.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
       });
+    });
+  }
+
+  if (employeeTableBody) {
+    employeeTableBody.addEventListener('click', function(event) {
+      if (event.target.closest('a, button, input, select, form')) return;
+      const row = event.target.closest('tr[data-employee-id]');
+      if (!row) return;
+      const empId = row.dataset.employeeId;
+      if (!empId) return;
+      window.location.href = 'employee_calendar.php?id=' + encodeURIComponent(empId);
+    });
+  }
+})();
 
       // Accessibility: make main focusable
       const main = document.querySelector('main');
@@ -2434,60 +2480,32 @@ tr.appendChild(tdOut);
     })();
   </script>
   <script>
-// =============== SYNC TIME WITH SERVER ===============
+// =============== SYNC ADMIN ATTENDANCE CLOCK WITH SERVER TIME ===============
 let serverOffsetMs = 0;
-let syncedServerTime = null;
 
-// Fetch server time once and calculate offset
-fetch('sync_time.php', { cache: 'no-store' })
+// Fetch server time and calculate offset
+fetch('server_time.php', { cache: 'no-store' })
   .then(r => {
-    if (!r.ok) throw new Error('time_fetch_failed');
+    if (!r.ok) throw new Error('fetch failed');
     return r.json();
   })
   .then(data => {
     if (data && data.server_ts_ms) {
-      // Calculate offset: how much ahead/behind server is
-      const clientNowMs = Date.now();
-      serverOffsetMs = Number(data.server_ts_ms) - clientNowMs;
+      serverOffsetMs = Number(data.server_ts_ms) - Date.now();
     }
   })
   .catch(err => {
-    console.warn('[time-sync] Could not fetch server time, using client time:', err);
-    serverOffsetMs = 0; // Fallback to client time
+    console.warn('[time-sync] Could not sync server time, using client time:', err);
+    serverOffsetMs = 0;
   });
 
-// Helper: Get current server-synced time
-function getSyncedServerTime() {
+// Helper function to get synced time
+function getSyncedTime() {
   return new Date(Date.now() + serverOffsetMs);
 }
 
-// Make globally available for all scripts
-window.getSyncedServerTime = getSyncedServerTime;
-</script>
-<script>
-  // SYNC ADMIN ATTENDACE CLOCK WITH SERVER TIME
-  let serverOffsetMs = 0;
-  
-  // Fetch server time and calculate offset
-  fetch('server_time.php', { cache: 'no-store' })
-    .then(r => { if(!r.ok) throw new Error('fetch failed'); return r.json(); })
-    .then(data => {
-      if (data.server_ts_ms) {
-        serverOffsetMs = Number(data.server_ts_ms) - Date.now();
-      }
-    })
-    .catch(err => {
-      console.warn('Could not sync server time, using client time', err);
-      serverOffsetMs = 0;
-    });
-  
-  // Helper function to get synced time
-  function getSyncedTime() {
-    return new Date(Date.now() + serverOffsetMs);
-  }
-  
-  // Make it globally available
-  window.getSyncedTime = getSyncedTime;
+// Make it globally available
+window.getSyncedTime = getSyncedTime;
 </script>
 </body>
 </html>

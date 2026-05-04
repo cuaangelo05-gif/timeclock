@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Camera Test</title>
+</head>
+<body>
+    <h1>Camera Test</h1>
+    <video id="testCamera" autoplay playsinline muted style="width: 320px; height: 240px; border: 1px solid black;"></video>
+    <br>
+    <button onclick="startCamera()">Start Camera</button>
+    <button onclick="stopCamera()">Stop Camera</button>
+    <div id="status"></div>
+
+    <script>
+        const video = document.getElementById('testCamera');
+        const status = document.getElementById('status');
+        let stream = null;
+
+        async function startCamera() {
+            try {
+                status.textContent = 'Requesting camera access...';
+                stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+                video.srcObject = stream;
+                status.textContent = 'Camera started successfully!';
+            } catch (err) {
+                let message = 'Camera error: ';
+                if (err.name === 'NotAllowedError') {
+                    message += 'Permission denied. Please allow camera access.';
+                } else if (err.name === 'NotFoundError') {
+                    message += 'No camera found.';
+                } else if (err.name === 'NotReadableError') {
+                    message += 'Camera is already in use.';
+                } else if (err.name === 'SecurityError') {
+                    message += 'Camera access blocked. Try HTTPS.';
+                } else {
+                    message += err.message;
+                }
+                status.textContent = message;
+                console.error('Camera error:', err);
+            }
+        }
+
+        function stopCamera() {
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                stream = null;
+                video.srcObject = null;
+                status.textContent = 'Camera stopped.';
+            }
+        }
+    </script>
+</body>
+</html></content>
+<parameter name="filePath">c:\xampp\htdocs\timeclock\camera_test.html

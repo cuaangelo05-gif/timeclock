@@ -44,6 +44,11 @@ try {
 
   <main class="kiosk" id="kiosk">
 
+    <!-- Camera requirement notice (shown if HTTP) -->
+    <div id="httpsNotice" class="card" style="background:#fef3c7;color:#92400e;padding:12px;margin-bottom:16px;display:none;">
+      <strong>Camera Notice:</strong> For camera access, please use HTTPS: <a href="https://localhost/timeclock/" style="color:#92400e;text-decoration:underline;">https://localhost/timeclock/</a>
+    </div>
+
     <!-- Camera area (always visible). Use poster for a default image when stream isn't attached -->
     <header class="logo-wrap" aria-hidden="false">
       <video id="cameraPreview"
@@ -86,6 +91,16 @@ try {
           </div>
           <input type="hidden" name="action" id="actionInput" value="">
         </div>
+
+        <!-- RFID Input (hidden but captures RFID card data) -->
+        <input
+          id="rfidInput"
+          type="text"
+          style="position: absolute; left: -9999px; width: 1px; height: 1px;"
+          placeholder="RFID Scanner"
+          aria-label="RFID Scanner"
+          tabindex="-1"
+        />
 
         <!-- Employee ID (numeric only) -->
         <div class="field">
@@ -197,30 +212,66 @@ try {
 document.addEventListener('DOMContentLoaded', async () => {
   const cameraPreview = document.getElementById('cameraPreview');
   if (!cameraPreview) return;
-  
-  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-    console.warn('getUserMedia not supported');
-    cameraPreview.style.display = 'none'; // Hide video if not supported
-    return;
+
+  // Show HTTPS notice if not on HTTPS
+  const httpsNotice = document.getElementById('httpsNotice');
+  if (httpsNotice && location.protocol !== 'https:') {
+    httpsNotice.style.display = 'block';
   }
   
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: true, // Simplified constraints for better compatibility
-      audio: false
-    });
-    cameraPreview.srcObject = stream;
-    await cameraPreview.play();
-  } catch (err) {
-    console.warn('❌ Camera permission denied or not available:', err);
-    cameraPreview.style.display = 'none'; // Hide video on error
-    // Optionally show a message
-    const msg = document.getElementById('formMsg');
-    if (msg) {
-      msg.textContent = 'Camera access failed. Please check permissions and try refreshing.';
-      msg.style.color = 'red';
+  const startCamera = async () => {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      console.warn('getUserMedia not supported');
+      const msg = document.getElementById('formMsg');
+      if (msg) {
+        msg.textContent = 'Camera not supported in this browser.';
+        msg.style.color = 'red';
+      }
+      return;
     }
-  }
+    
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: true, // Simplified constraints for better compatibility
+        audio: false
+      });
+      cameraPreview.srcObject = stream;
+      await cameraPreview.play();
+      // Hide any error message
+      const msg = document.getElementById('formMsg');
+      if (msg && msg.textContent.includes('Camera access failed')) {
+        msg.textContent = '';
+      }
+    } catch (err) {
+      console.warn('❌ Camera permission denied or not available:', err);
+      // Show specific error message
+      const msg = document.getElementById('formMsg');
+      if (msg) {
+        let errorMsg = 'Camera access failed.';
+        if (err.name === 'NotAllowedError') {
+          errorMsg = 'Camera permission denied. Please allow camera access in your browser and refresh the page.';
+        } else if (err.name === 'NotFoundError') {
+          errorMsg = 'No camera found. Please connect a camera and refresh the page.';
+        } else if (err.name === 'NotReadableError') {
+          errorMsg = 'Camera is already in use by another application.';
+        } else if (err.name === 'OverconstrainedError') {
+          errorMsg = 'Camera constraints not supported.';
+        } else if (err.name === 'SecurityError') {
+          errorMsg = 'Camera access blocked. Try accessing this page with HTTPS (https://localhost/timeclock/) or allow camera access for this site.';
+        } else {
+          errorMsg = `Camera error: ${err.message}`;
+        }
+        msg.textContent = errorMsg;
+        msg.style.color = 'red';
+      }
+    }
+  };
+
+  // Try to start camera on load
+  await startCamera();
+
+  // Allow clicking the camera area to retry
+  cameraPreview.addEventListener('click', startCamera);
 });
 </script>
 </html>

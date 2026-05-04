@@ -30,8 +30,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             // Prepare the SQL statement
             try {
-                $stmt = $pdo->prepare('INSERT INTO admins (username, password_hash, fullname) VALUES (?, ?, ?)');
-                $stmt->execute([$username, $hashed_password, $full_name]);
+                $stmt = $pdo->prepare('INSERT INTO admins (username, password_hash, password_plain, fullname) VALUES (?, ?, ?, ?)');
+                $stmt->execute([$username, $hashed_password, $password, $full_name]);
                 $message = 'Admin user created successfully! You can now <a href="admin_login.php">log in</a>.';
             } catch (Exception $e) {
                 $message = 'Error creating admin user: ' . htmlspecialchars($e->getMessage());
